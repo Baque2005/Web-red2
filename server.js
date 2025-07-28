@@ -136,7 +136,20 @@ app.post('/files/upload', (req, res, next) => {
     next();
   });
 }, async (req, res) => {
-  if (!req.isAuthenticated || !req.isAuthenticated() || !req.user) {
+  // --- AUTENTICACIÓN POR SESIÓN O JWT ---
+  let user = req.user;
+  if (!user) {
+    // Si no hay sesión, intenta con JWT
+    const auth = req.headers.authorization;
+    if (auth && auth.startsWith('Bearer ')) {
+      try {
+        user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
+      } catch {
+        user = null;
+      }
+    }
+  }
+  if (!user || !user.id) {
     return res.status(401).json({ success: false, message: 'No autenticado' });
   }
 
@@ -146,7 +159,7 @@ app.post('/files/upload', (req, res, next) => {
 
   const { originalname, filename } = req.file;
   const file_data = filename;
-  const user_id = req.user.id;
+  const user_id = user.id;
 
   try {
     await pool.query(
