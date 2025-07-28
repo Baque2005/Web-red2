@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Para Mi Niña 💙</title>
+  <style>
+    html, body{margin:0;overflow:hidden;height:100%;background:#000;font-family:sans-serif}
+    canvas{display:block}
+    /* Ocultamos totalmente el reproductor */
+    audio{display:none!important}
+  </style>
+</head>
+<body>
+  <!-- 🔊 Música obligatoria -->
+  <audio id="bgMusic" src="dreamgirl.mp3" autoplay loop></audio>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three/examples/js/controls/OrbitControls.js"></script>
+  <script>
+    /* ---------- ARRANQUE DE LA MÚSICA (por si el navegador bloquea autoplay) ---------- */
+    (function(){
+      const music = document.getElementById('bgMusic');
+      /* Intenta reproducir de inmediato */
+      music.play().catch(()=>{});
+      /* Si falló, fuerza play al primer toque/clic */
+      const startMusic = () => { music.play().catch(()=>{}); window.removeEventListener('pointerdown',startMusic); };
+      window.addEventListener('pointerdown', startMusic, { once:true });
+    })();
+    
+    /* ---------- THREE.JS – ESCENA PRINCIPAL ---------- */
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({antialias:true});
+    renderer.setSize(innerWidth, innerHeight); document.body.appendChild(renderer.domElement);
+
+    /* Estrellas de fondo */
+    for(let i=0;i<1000;i++){
+      const star = new THREE.Mesh(new THREE.SphereGeometry(0.2,12,12),
+                                  new THREE.MeshBasicMaterial({color:0xffffff}));
+      star.position.set((Math.random()-0.5)*500,(Math.random()-0.5)*500,(Math.random()-0.5)*500);
+      scene.add(star);
+    }
+
+    /* Esfera multicolor */
+    const ballGeo = new THREE.SphereGeometry(3,64,64);
+    const colors=[], posCount = ballGeo.attributes.position.count;
+    for(let i=0;i<posCount;i++){ colors.push(Math.random(),Math.random(),Math.random()); }
+    ballGeo.setAttribute('color', new THREE.Float32BufferAttribute(colors,3));
+    const ballMat = new THREE.MeshPhongMaterial({vertexColors:true,shininess:150});
+    const ball = new THREE.Mesh(ballGeo, ballMat); scene.add(ball);
+
+    /* Luces y cámara */
+    scene.add(new THREE.PointLight(0xffffff,1).position.set(10,10,10));
+    camera.position.z = 20;
+
+    /* Control orbital automático */
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.autoRotate = true; controls.autoRotateSpeed = 0.8;
+
+    /* Geometría corazón */
+    const heartShape = new THREE.Shape()
+          .moveTo(0,0).bezierCurveTo(0,0,-2,-2,0,-4)
+          .bezierCurveTo(2,-2,0,0,0,0);
+    const heartGeo = new THREE.ShapeGeometry(heartShape);
+    const heartMat = new THREE.MeshBasicMaterial({color:0xff4f78,side:THREE.DoubleSide,transparent:true});
+    const launchedHearts = [];
+    function launchHearts(){
+      for(let i=0;i<40;i++){
+        const mesh=new THREE.Mesh(heartGeo, heartMat.clone());
+        mesh.scale.set(0.2,0.2,0.2); mesh.position.copy(ball.position);
+        scene.add(mesh);
+        const dir=new THREE.Vector3((Math.random()-0.5)*2,(Math.random()-0.5)*2,(Math.random()-0.5)*2)
+                    .normalize().multiplyScalar(0.5);
+        launchedHearts.push({mesh,dir});
+      }
+    }
+
+    /* Palabras flotantes */
+    const floating=[]; const phrases=["te amo","foro","mi niña💙"];
+    new THREE.FontLoader().load("https://threejs.org/examples/fonts/helvetiker_regular.typeface.json",font=>{
+      for(let i=0;i<40;i++){
+        const textGeo=new THREE.TextGeometry(phrases[Math.random()*phrases.length|0],
+                        {font,size:0.5,height:0.05});
+        const textMat=new THREE.MeshBasicMaterial({color:0x00ffff});
+        const mesh=new THREE.Mesh(textGeo,textMat); scene.add(mesh);
+        floating.push({mesh,ang:Math.random()*Math.PI*2,rad:6+Math.random()*3,spd:0.002+Math.random()*0.002});
+      }
+    });
+
+    /* Clic sobre la esfera */
+    const ray=new THREE.Raycaster(), mouse=new THREE.Vector2();
+    addEventListener('click',e=>{
+      mouse.set( (e.clientX/innerWidth)*2-1, -(e.clientY/innerHeight)*2+1 );
+      ray.setFromCamera(mouse,camera);
+      if(ray.intersectObject(ball).length) launchHearts();
+    });
+
+    /* Animación principal */
+    function animate(){
+      requestAnimationFrame(animate);
+      ball.rotation.y += 0.005; controls.update();
+      launchedHearts.forEach((h,i)=>{ h.mesh.position.add(h.dir); h.mesh.material.opacity-=0.01;
+        if(h.mesh.material.opacity<=0){ scene.remove(h.mesh); launchedHearts.splice(i,1);} });
+      floating.forEach(f=>{ f.ang+=f.spd;
+        f.mesh.position.set(Math.cos(f.ang)*f.rad, Math.sin(f.ang*0.7)*f.rad, Math.sin(f.ang)*f.rad);});
+      renderer.render(scene,camera);
+    } animate();
+
+    /* Resize */
+    addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+                                    renderer.setSize(innerWidth,innerHeight); });
+  </script>
+</body>
+</html>
