@@ -23,7 +23,8 @@ router.get('/google/callback',
     session: true,
   }),
   (req, res) => {
-    // Redirige manualmente tras autenticación exitosa
+    console.log('✅ Google callback - usuario autenticado:', req.user);
+    console.log('✅ Google callback - session:', req.session);
     res.redirect(CLIENT_URL);
   }
 );
