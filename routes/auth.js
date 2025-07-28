@@ -1,5 +1,6 @@
 const express = require('express');
 const passport = require('passport');
+const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 const router = express.Router();
@@ -18,29 +19,17 @@ router.get('/google', passport.authenticate('google', {
 
 // 👉 Callback de Google
 router.get('/google/callback',
-  (req, res, next) => {
-    passport.authenticate('google', {
-      failureRedirect: '/login/failed',
-      session: true,
-    }, (err, user, info) => {
-      if (err) {
-        console.error('❌ Error en Google callback:', err);
-        return res.status(500).json({ success: false, message: 'Error en Google callback', error: err });
-      }
-      if (!user) {
-        console.error('❌ Usuario no autenticado en Google callback:', info);
-        return res.redirect('/login/failed');
-      }
-      req.logIn(user, (err) => {
-        if (err) {
-          console.error('❌ Error en req.logIn:', err);
-          return res.status(500).json({ success: false, message: 'Error en req.logIn', error: err });
-        }
-        console.log('✅ Google callback - usuario autenticado:', user);
-        console.log('✅ Google callback - session:', req.session);
-        return res.redirect(CLIENT_URL);
-      });
-    })(req, res, next);
+  passport.authenticate('google', { failureRedirect: '/login/failed', session: false }),
+  (req, res) => {
+    // Genera el JWT con los datos del usuario
+    const token = jwt.sign(
+      { id: req.user.id, name: req.user.name, email: req.user.email, photo: req.user.photo },
+      process.env.JWT_SECRET,
+      { expiresIn: '1d' }
+    );
+    // Redirige al frontend con el token en la URL (o responde con JSON si usas fetch)
+    res.redirect(`${CLIENT_URL}/?token=${token}`);
+    // Alternativa para SPA: res.json({ token });
   }
 );
 
@@ -100,6 +89,19 @@ router.get('/user', (req, res) => {
     });
   } else {
     res.status(401).json({ message: 'No autenticado' });
+  }
+});
+
+// Ruta para verificar el JWT
+router.get('/me', (req, res) => {
+  const auth = req.headers.authorization;
+  if (!auth) return res.status(401).json({ user: null });
+  const token = auth.replace('Bearer ', '');
+  try {
+    const user = jwt.verify(token, process.env.JWT_SECRET);
+    res.json({ user });
+  } catch {
+    res.status(401).json({ user: null });
   }
 });
 
