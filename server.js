@@ -23,33 +23,6 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir);
 }
 
-// Middlewares
-app.use(cors({
-  origin: CLIENT_URL,
-  credentials: true,
-}));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-app.use(session({
-  store: new PgSession({
-    pool: pool,
-    tableName: 'session',
-  }),
-  secret: process.env.SESSION_SECRET,
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: !isDev,       // true en producción con HTTPS
-    httpOnly: true,
-    sameSite: isDev ? 'lax' : 'none',  // 'none' para cross-site en producción
-    maxAge: 24 * 60 * 60 * 1000,       // 1 día
-  }
-}));
-
-app.use(passport.initialize());
-app.use(passport.session());
-
 // Middleware para agregar usuario autenticado a onlineUsers en cada petición
 let onlineUsers = new Set();
 app.use((req, res, next) => {
@@ -281,3 +254,4 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Servidor backend en http://localhost:${PORT}`);
 });
+
