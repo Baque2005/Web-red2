@@ -319,3 +319,24 @@ app.listen(PORT, () => {
   console.log(`Servidor backend en http://localhost:${PORT}`);
 });
 
+app.post('/users/offline', (req, res) => {
+  let userId = null;
+  // Buscar por sesión
+  if (req.user && req.user.id) {
+    userId = req.user.id;
+  } else {
+    // Buscar por JWT
+    const auth = req.headers.authorization;
+    if (auth && auth.startsWith('Bearer ')) {
+      try {
+        const user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
+        if (user && user.id) userId = user.id;
+      } catch {}
+    }
+  }
+  if (userId) {
+    onlineUsers.delete(userId);
+  }
+  res.status(200).json({ success: true });
+});
+
