@@ -18,14 +18,29 @@ router.get('/google', passport.authenticate('google', {
 
 // 👉 Callback de Google
 router.get('/google/callback',
-  passport.authenticate('google', {
-    failureRedirect: '/login/failed',
-    session: true,
-  }),
-  (req, res) => {
-    console.log('✅ Google callback - usuario autenticado:', req.user);
-    console.log('✅ Google callback - session:', req.session);
-    res.redirect(CLIENT_URL);
+  (req, res, next) => {
+    passport.authenticate('google', {
+      failureRedirect: '/login/failed',
+      session: true,
+    }, (err, user, info) => {
+      if (err) {
+        console.error('❌ Error en Google callback:', err);
+        return res.status(500).json({ success: false, message: 'Error en Google callback', error: err });
+      }
+      if (!user) {
+        console.error('❌ Usuario no autenticado en Google callback:', info);
+        return res.redirect('/login/failed');
+      }
+      req.logIn(user, (err) => {
+        if (err) {
+          console.error('❌ Error en req.logIn:', err);
+          return res.status(500).json({ success: false, message: 'Error en req.logIn', error: err });
+        }
+        console.log('✅ Google callback - usuario autenticado:', user);
+        console.log('✅ Google callback - session:', req.session);
+        return res.redirect(CLIENT_URL);
+      });
+    })(req, res, next);
   }
 );
 

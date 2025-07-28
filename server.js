@@ -23,6 +23,34 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir);
 }
 
+// Middlewares (¡deben ir antes de cualquier ruta!)
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+app.use(session({
+  store: new PgSession({
+    pool: pool,
+    tableName: 'session',
+  }),
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: !isDev,
+    httpOnly: true,
+    sameSite: isDev ? 'lax' : 'none',
+    maxAge: 24 * 60 * 60 * 1000,
+  }
+}));
+
+app.use(passport.initialize());
+app.use(passport.session());
+
+app.use(cors({
+  origin: CLIENT_URL,
+  credentials: true,
+}));
+
 // Middleware para agregar usuario autenticado a onlineUsers en cada petición
 let onlineUsers = new Set();
 app.use((req, res, next) => {
