@@ -19,7 +19,7 @@ const CLIENT_URL = isDev ? process.env.CLIENT_URL_DEV : process.env.CLIENT_URL_P
 
 // Middlewares
 app.use(cors({
-  origin: CLIENT_URL,
+  origin: CLIENT_URL, // debe ser el mismo dominio en producción
   credentials: true,
 }));
 app.use(express.json());
@@ -33,7 +33,7 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: !isDev, // true en producción
+    secure: !isDev, // true en producción (Render usa HTTPS)
     httpOnly: true,
     sameSite: isDev ? 'lax' : 'none', // 'none' en producción
   }
