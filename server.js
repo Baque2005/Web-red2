@@ -51,6 +51,13 @@ app.use(cors({
   credentials: true,
 }));
 
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', CLIENT_URL);
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  next();
+});
+
 // Middleware para agregar usuario autenticado a onlineUsers en cada petición
 let onlineUsers = new Set();
 app.use((req, res, next) => {
