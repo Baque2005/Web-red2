@@ -53,7 +53,7 @@ passport.use(new GoogleStrategy(
 
 // Serializar usuario con el ID interno único (no google_id)
 passport.serializeUser((user, done) => {
-  done(null, user.id);
+  done(null, user.id); // usa el id interno
 });
 
 // Deserializar usuario usando el ID interno
@@ -65,4 +65,3 @@ passport.deserializeUser(async (id, done) => {
     done(err, null);
   }
 });
-
