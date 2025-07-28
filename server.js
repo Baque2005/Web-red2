@@ -239,7 +239,20 @@ app.delete('/files/delete/:id', async (req, res) => {
     }
 
     const { file_data, user_id } = result.rows[0];
-    if (!req.user || req.user.id !== user_id) {
+
+    // --- AUTENTICACIÓN POR SESIÓN O JWT ---
+    let currentUserId = req.user && req.user.id ? req.user.id : null;
+    if (!currentUserId) {
+      const auth = req.headers.authorization;
+      if (auth && auth.startsWith('Bearer ')) {
+        try {
+          const user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
+          if (user && user.id) currentUserId = user.id;
+        } catch {}
+      }
+    }
+
+    if (!currentUserId || currentUserId !== user_id) {
       return res.status(403).json({ success: false, message: 'No autorizado.' });
     }
 
