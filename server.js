@@ -7,6 +7,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
+const jwt = require('jsonwebtoken');
 require('dotenv').config();
 require('./auth/googleAuth'); // Estrategia de Google
 
@@ -61,8 +62,23 @@ app.use((req, res, next) => {
 // Middleware para agregar usuario autenticado a onlineUsers en cada petición
 let onlineUsers = new Set();
 app.use((req, res, next) => {
+  // Si está autenticado por sesión
   if (req.user && req.user.id) {
     onlineUsers.add(req.user.id);
+  } else {
+    // Si tiene JWT en el header Authorization
+    const auth = req.headers.authorization;
+    if (auth && auth.startsWith('Bearer ')) {
+      try {
+        const token = auth.replace('Bearer ', '');
+        const user = jwt.verify(token, process.env.JWT_SECRET);
+        if (user && user.id) {
+          onlineUsers.add(user.id);
+        }
+      } catch (err) {
+        // Token inválido, no agregar
+      }
+    }
   }
   next();
 });
