@@ -17,9 +17,15 @@ const authRoutes = require('./routes/auth');
 const isDev = process.env.NODE_ENV === 'development';
 const CLIENT_URL = isDev ? process.env.CLIENT_URL_DEV : process.env.CLIENT_URL_PROD;
 
+// Crear carpeta uploads si no existe
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir);
+}
+
 // Middlewares
 app.use(cors({
-  origin: CLIENT_URL, // debe ser el mismo dominio en producción
+  origin: CLIENT_URL,
   credentials: true,
 }));
 app.use(express.json());
@@ -33,7 +39,7 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: !isDev, // true en producción (Render usa HTTPS)
+    secure: !isDev, // true en producción
     httpOnly: true,
     sameSite: isDev ? 'lax' : 'none', // 'none' en producción
   }
@@ -41,33 +47,17 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Rutas de autenticación
-app.use('/auth', authRoutes);
-
-// Variable en memoria para usuarios online (solo para demo, no producción)
+// Middleware para agregar usuario autenticado a onlineUsers en cada petición
 let onlineUsers = new Set();
-
-
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-const buildPath = path.join(__dirname, 'build');
-app.use(express.static(buildPath));
-
-// Enviar index.html para cualquier ruta que NO sea API ni autenticación
-app.get(/^\/(?!api|auth|files).*/, (req, res) => {
-  res.sendFile(path.join(buildPath, 'index.html'), err => {
-    if (err) {
-      console.error('Error enviando index.html:', err);
-      res.status(500).send('Error interno del servidor');
-    }
-  });
-});
-// Ruta base (necesaria para que el usuario se agregue a onlineUsers)
-app.get('/', (req, res) => {
+app.use((req, res, next) => {
   if (req.user && req.user.id) {
     onlineUsers.add(req.user.id);
   }
-  res.send('Servidor corriendo 🚀');
+  next();
 });
+
+// Rutas de autenticación
+app.use('/auth', authRoutes);
 
 // Ruta para obtener usuarios online
 app.get('/users/online', async (req, res) => {
@@ -88,10 +78,10 @@ app.get('/users/online', async (req, res) => {
 // Configurar multer con nombre aleatorio y extensión .html
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, 'uploads'));
+    cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
-    const uniqueName = uuidv4(); // nombre hash sin extensión
+    const uniqueName = uuidv4();
     console.log(`Guardando archivo original: ${file.originalname}, mime: ${file.mimetype}, como: ${uniqueName}.html`);
     cb(null, uniqueName + '.html');
   }
@@ -110,9 +100,16 @@ const upload = multer({
   }
 });
 
-// Subida de archivos HTML
-app.post('/files/upload', upload.single('file'), async (req, res) => {
-  if (!req.isAuthenticated?.() || !req.user) {
+// Subida de archivos HTML con manejo explícito de error multer
+app.post('/files/upload', (req, res, next) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+    next();
+  });
+}, async (req, res) => {
+  if (!req.isAuthenticated || !req.isAuthenticated() || !req.user) {
     return res.status(401).json({ success: false, message: 'No autenticado' });
   }
 
@@ -121,7 +118,7 @@ app.post('/files/upload', upload.single('file'), async (req, res) => {
   }
 
   const { originalname, filename } = req.file;
-  const file_data = filename; // nombre con extensión, ej: uuid.html
+  const file_data = filename;
   const user_id = req.user.id;
 
   try {
@@ -166,7 +163,7 @@ app.get('/files', async (req, res) => {
 // Descargar archivo
 app.get('/files/download/:filedata', async (req, res) => {
   const fileName = req.params.filedata;
-  const filePath = path.join(__dirname, 'uploads', fileName);
+  const filePath = path.join(uploadDir, fileName);
 
   try {
     const result = await pool.query(
@@ -206,7 +203,7 @@ app.delete('/files/delete/:id', async (req, res) => {
       return res.status(403).json({ success: false, message: 'No autorizado.' });
     }
 
-    const filePath = path.join(__dirname, 'uploads', file_data);
+    const filePath = path.join(uploadDir, file_data);
     fs.unlink(filePath, async (err) => {
       if (err) {
         console.error('Error al eliminar archivo físico:', err);
@@ -224,7 +221,7 @@ app.delete('/files/delete/:id', async (req, res) => {
 // Ver archivo HTML
 app.get('/files/view/:filedata', (req, res) => {
   const fileName = req.params.filedata;
-  const filePath = path.join(__dirname, 'uploads', fileName);
+  const filePath = path.join(uploadDir, fileName);
 
   fs.access(filePath, fs.constants.F_OK, (err) => {
     if (err) {
@@ -235,19 +232,38 @@ app.get('/files/view/:filedata', (req, res) => {
   });
 });
 
-
 // Ruta ping para mantener la sesión activa
 app.post('/users/ping', (req, res) => {
   res.status(200).json({ success: true });
 });
+
 app.get('/auth/login/success', (req, res) => {
-  if (req.isAuthenticated()) {
-    // Devuelve info del usuario logueado
+  if (req.isAuthenticated && req.isAuthenticated()) {
     res.json({ success: true, user: req.user });
   } else {
     res.status(401).json({ success: false, user: null });
   }
 });
+
+app.use('/uploads', express.static(uploadDir));
+const buildPath = path.join(__dirname, 'build');
+app.use(express.static(buildPath));
+
+// Enviar index.html para cualquier ruta que NO sea API ni autenticación
+app.get(/^\/(?!api|auth|files).*/, (req, res) => {
+  res.sendFile(path.join(buildPath, 'index.html'), err => {
+    if (err) {
+      console.error('Error enviando index.html:', err);
+      res.status(500).send('Error interno del servidor');
+    }
+  });
+});
+
+// Ruta base (opcional, solo para demo)
+app.get('/', (req, res) => {
+  res.send('Servidor corriendo 🚀');
+});
+
 // Iniciar servidor
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
