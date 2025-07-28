@@ -43,17 +43,27 @@ router.get('/logout', (req, res, next) => {
 
 // 👉 Ruta opcional para verificar sesión activa
 router.get('/login/success', (req, res) => {
+  console.log('--- /auth/login/success ---');
+  console.log('Cookies:', req.headers.cookie);
+  console.log('Session:', req.session);
+  console.log('User:', req.user);
+  console.log('isAuthenticated:', req.isAuthenticated && req.isAuthenticated());
+
   if (req.isAuthenticated && req.isAuthenticated()) {
     res.status(200).json({
       success: true,
       message: 'Autenticado con éxito',
       user: req.user,
+      session: req.session,
+      cookies: req.headers.cookie || null,
     });
   } else {
     res.status(401).json({
       success: false,
       message: 'No autenticado',
       user: null,
+      session: req.session,
+      cookies: req.headers.cookie || null,
     });
   }
 });

@@ -242,9 +242,16 @@ app.post('/users/ping', (req, res) => {
 
 // Ruta para testear la sesión y cookies
 app.get('/test-session', (req, res) => {
+  console.log('--- /test-session ---');
+  console.log('Cookies:', req.headers.cookie);
+  console.log('Session:', req.session);
+  console.log('User:', req.user);
+  console.log('isAuthenticated:', req.isAuthenticated && req.isAuthenticated());
+
   res.json({
     isAuthenticated: req.isAuthenticated ? req.isAuthenticated() : false,
     user: req.user || null,
+    session: req.session,
     cookies: req.headers.cookie || null,
   });
 });
