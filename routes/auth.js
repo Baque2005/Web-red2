@@ -43,7 +43,7 @@ router.get('/logout', (req, res, next) => {
 
 // 👉 Ruta opcional para verificar sesión activa
 router.get('/login/success', (req, res) => {
-  if (req.user) {
+  if (req.isAuthenticated && req.isAuthenticated()) {
     res.status(200).json({
       success: true,
       message: 'Autenticado con éxito',
@@ -53,6 +53,7 @@ router.get('/login/success', (req, res) => {
     res.status(401).json({
       success: false,
       message: 'No autenticado',
+      user: null,
     });
   }
 });
