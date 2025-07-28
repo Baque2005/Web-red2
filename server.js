@@ -28,8 +28,10 @@ app.use(cors({
   origin: CLIENT_URL,
   credentials: true,
 }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
 app.use(session({
   store: new PgSession({
     pool: pool,
@@ -39,11 +41,13 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: !isDev, // true en producción
+    secure: !isDev,       // true en producción con HTTPS
     httpOnly: true,
-    sameSite: isDev ? 'lax' : 'none', // 'none' en producción
+    sameSite: isDev ? 'lax' : 'none',  // 'none' para cross-site en producción
+    maxAge: 24 * 60 * 60 * 1000,       // 1 día
   }
 }));
+
 app.use(passport.initialize());
 app.use(passport.session());
 
