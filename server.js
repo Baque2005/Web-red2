@@ -28,7 +28,6 @@ app.use(cors({
   origin: CLIENT_URL,
   credentials: true,
 }));
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -241,14 +240,16 @@ app.post('/users/ping', (req, res) => {
   res.status(200).json({ success: true });
 });
 
-app.get('/auth/login/success', (req, res) => {
-  if (req.isAuthenticated && req.isAuthenticated()) {
-    res.json({ success: true, user: req.user });
-  } else {
-    res.status(401).json({ success: false, user: null });
-  }
+// Ruta para testear la sesión y cookies
+app.get('/test-session', (req, res) => {
+  res.json({
+    isAuthenticated: req.isAuthenticated ? req.isAuthenticated() : false,
+    user: req.user || null,
+    cookies: req.headers.cookie || null,
+  });
 });
 
+// Servir archivos estáticos del frontend React
 app.use('/uploads', express.static(uploadDir));
 const buildPath = path.join(__dirname, 'build');
 app.use(express.static(buildPath));
