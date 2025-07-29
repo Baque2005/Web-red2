@@ -61,27 +61,39 @@ app.use((req, res, next) => {
 
 // Middleware para agregar usuario autenticado a onlineUsers en cada petición
 let onlineUsers = new Set();
+let onlineTimestamps = {}; // userId: timestamp
+
 app.use((req, res, next) => {
-  // Si está autenticado por sesión
+  let userId = null;
   if (req.user && req.user.id) {
-    onlineUsers.add(req.user.id);
+    userId = req.user.id;
   } else {
-    // Si tiene JWT en el header Authorization
     const auth = req.headers.authorization;
     if (auth && auth.startsWith('Bearer ')) {
       try {
         const token = auth.replace('Bearer ', '');
         const user = jwt.verify(token, process.env.JWT_SECRET);
-        if (user && user.id) {
-          onlineUsers.add(user.id);
-        }
-      } catch (err) {
-        // Token inválido, no agregar
-      }
+        if (user && user.id) userId = user.id;
+      } catch {}
     }
+  }
+  if (userId) {
+    onlineUsers.add(userId);
+    onlineTimestamps[userId] = Date.now();
   }
   next();
 });
+
+// Limpieza automática de usuarios inactivos cada 10 segundos
+setInterval(() => {
+  const now = Date.now();
+  for (const userId of onlineUsers) {
+    if (!onlineTimestamps[userId] || now - onlineTimestamps[userId] > 15000) { // 15s sin ping
+      onlineUsers.delete(userId);
+      delete onlineTimestamps[userId];
+    }
+  }
+}, 10000);
 
 // Rutas de autenticación
 app.use('/auth', authRoutes);
@@ -287,6 +299,22 @@ app.get('/files/view/:filedata', (req, res) => {
 
 // Ruta ping para mantener la sesión activa
 app.post('/users/ping', (req, res) => {
+  let userId = null;
+  if (req.user && req.user.id) {
+    userId = req.user.id;
+  } else {
+    const auth = req.headers.authorization;
+    if (auth && auth.startsWith('Bearer ')) {
+      try {
+        const user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
+        if (user && user.id) userId = user.id;
+      } catch {}
+    }
+  }
+  if (userId) {
+    onlineUsers.add(userId);
+    onlineTimestamps[userId] = Date.now();
+  }
   res.status(200).json({ success: true });
 });
 
@@ -334,11 +362,9 @@ app.listen(PORT, () => {
 
 app.post('/users/offline', (req, res) => {
   let userId = null;
-  // Buscar por sesión
   if (req.user && req.user.id) {
     userId = req.user.id;
   } else {
-    // Buscar por JWT
     const auth = req.headers.authorization;
     if (auth && auth.startsWith('Bearer ')) {
       try {
@@ -349,6 +375,7 @@ app.post('/users/offline', (req, res) => {
   }
   if (userId) {
     onlineUsers.delete(userId);
+    delete onlineTimestamps[userId];
   }
   res.status(200).json({ success: true });
 });
