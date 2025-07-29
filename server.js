@@ -170,17 +170,20 @@ app.post('/files/upload', (req, res, next) => {
     const user_id = user.id;
 
     try {
-      // Subir a Supabase Storage
+      // LOG para depuración
+      console.log('Subiendo a Supabase:', uniqueName, 'Tamaño:', buffer.length);
+
+      // Subir a Supabase Storage (permite sobrescribir si ya existe)
       const { data, error } = await supabase.storage
         .from('html-files')
         .upload(uniqueName, buffer, {
           contentType: 'text/html',
-          upsert: false
+          upsert: true // <-- permite sobrescribir si el nombre existe
         });
 
       if (error) {
         console.error('Error al subir a Supabase:', error);
-        return res.status(500).json({ success: false, message: 'Error al subir a Supabase.' });
+        return res.status(500).json({ success: false, message: 'Error al subir a Supabase: ' + error.message });
       }
 
       // Obtener URL pública
@@ -191,11 +194,10 @@ app.post('/files/upload', (req, res, next) => {
         'INSERT INTO html_files (user_id, filename, file_data, file_url, created_at) VALUES ($1, $2, $3, $4, NOW())',
         [user_id, originalname, uniqueName, publicUrl]
       );
-
       res.json({ success: true, message: 'Archivo subido correctamente.' });
     } catch (err) {
       console.error('Error al guardar en DB o Supabase:', err);
-      res.status(500).json({ success: false, message: 'Error al guardar en la base de datos.' });
+      res.status(500).json({ success: false, message: 'Error al guardar en la base de datos: ' + err.message });
     }
   });
 });
@@ -203,19 +205,34 @@ app.post('/files/upload', (req, res, next) => {
 // Listar archivos
 app.get('/files', async (req, res) => {
   try {
-    const { search = '', page = 1 } = req.query;
+    const { search = '', user = '', page = 1 } = req.query;
     const limit = 10;
     const offset = (parseInt(page, 10) - 1) * limit;
 
-    const result = await pool.query(
-      `SELECT f.id, f.filename, f.file_data, f.user_id, u.name AS user_name
-       FROM html_files f
-       JOIN users u ON f.user_id = u.id
-       WHERE f.filename ILIKE $1
-       ORDER BY f.created_at DESC
-       LIMIT $2 OFFSET $3`,
-      [`%${search}%`, limit, offset]
-    );
+    let query = `
+      SELECT f.id, f.filename, f.file_data, f.user_id, u.name AS user_name
+      FROM html_files f
+      JOIN users u ON f.user_id = u.id
+      WHERE 1=1
+    `;
+    let params = [];
+    let idx = 1;
+
+    if (search) {
+      query += ` AND f.filename ILIKE $${idx}`;
+      params.push(`%${search}%`);
+      idx++;
+    }
+    if (user) {
+      query += ` AND u.name ILIKE $${idx}`;
+      params.push(`%${user}%`);
+      idx++;
+    }
+
+    query += ` ORDER BY f.created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`;
+    params.push(limit, offset);
+
+    const result = await pool.query(query, params);
 
     res.json({
       files: result.rows,
@@ -279,21 +296,19 @@ app.delete('/files/delete/:id', async (req, res) => {
       }
     }
 
-    if (!currentUserId || currentUserId !== user_id) {
+    // Permitir al admin eliminar cualquier archivo
+    if (!currentUserId || (String(currentUserId) !== String(user_id) && String(currentUserId) !== ADMIN_ID)) {
       return res.status(403).json({ success: false, message: 'No autorizado.' });
     }
 
+    // Elimina archivo físico si existe (opcional, si usas Supabase Storage puedes omitir)
     const filePath = path.join(uploadDir, file_data);
     fs.unlink(filePath, async (err) => {
-      if (err) {
-        console.error('Error al eliminar archivo físico:', err);
-        return res.status(500).json({ success: false, message: 'Error al eliminar archivo físico.' });
-      }
+      // Ignora error si no existe en disco
       await pool.query('DELETE FROM html_files WHERE id = $1', [req.params.id]);
       res.json({ success: true });
     });
   } catch (err) {
-    console.error('Error al eliminar archivo:', err);
     res.status(500).json({ success: false, message: 'Error al eliminar el archivo.' });
   }
 });
@@ -429,4 +444,58 @@ app.post('/users/offline', (req, res) => {
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Servidor backend en http://localhost:${PORT}`);
+});
+
+const ADMIN_ID = "106589782394147462198";
+
+// Listar todos los usuarios (solo admin)
+app.get('/users/all', async (req, res) => {
+  let user = req.user;
+  if (!user) {
+    const auth = req.headers.authorization;
+    if (auth && auth.startsWith('Bearer ')) {
+      try {
+        user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
+      } catch {
+        user = null;
+      }
+    }
+  }
+  if (!user || String(user.id) !== ADMIN_ID) {
+    return res.status(403).json({ users: [] });
+  }
+  try {
+    const result = await pool.query('SELECT id, name, email, photo FROM users ORDER BY id');
+    res.json({ users: result.rows });
+  } catch (err) {
+    res.json({ users: [] });
+  }
+});
+
+// Eliminar usuario (solo admin)
+app.delete('/users/delete/:id', async (req, res) => {
+  let user = req.user;
+  if (!user) {
+    const auth = req.headers.authorization;
+    if (auth && auth.startsWith('Bearer ')) {
+      try {
+        user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
+      } catch {
+        user = null;
+      }
+    }
+  }
+  if (!user || String(user.id) !== ADMIN_ID) {
+    return res.status(403).json({ success: false, message: 'No autorizado.' });
+  }
+  const userIdToDelete = req.params.id;
+  try {
+    // Elimina archivos del usuario
+    await pool.query('DELETE FROM html_files WHERE user_id = $1', [userIdToDelete]);
+    // Elimina usuario
+    await pool.query('DELETE FROM users WHERE id = $1', [userIdToDelete]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Error al eliminar usuario.' });
+  }
 });
