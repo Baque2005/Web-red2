@@ -358,6 +358,55 @@ app.delete('/users/delete/:id', async (req, res) => {
   }
 });
 
+// Eliminar archivo (Supabase + DB)
+app.delete('/files/delete/:id', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT file_data, user_id FROM html_files WHERE id = $1',
+      [req.params.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Archivo no encontrado.' });
+    }
+
+    const { file_data, user_id } = result.rows[0];
+
+    // Autenticación
+    let currentUserId = req.user && req.user.id ? req.user.id : null;
+    if (!currentUserId) {
+      const auth = req.headers.authorization;
+      if (auth && auth.startsWith('Bearer ')) {
+        try {
+          const user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
+          if (user && user.id) currentUserId = user.id;
+        } catch {}
+      }
+    }
+
+    // Permitir al admin eliminar cualquier archivo
+    if (!currentUserId || (String(currentUserId) !== String(user_id) && String(currentUserId) !== ADMIN_ID)) {
+      return res.status(403).json({ success: false, message: 'No autorizado.' });
+    }
+
+    // Elimina archivo de Supabase Storage
+    const { error: supaError } = await supabase.storage
+      .from('html-files')
+      .remove([file_data]);
+
+    if (supaError && supaError.statusCode !== '404') {
+      // Si el error no es "no existe", reporta error
+      return res.status(500).json({ success: false, message: 'Error al eliminar archivo en Supabase.' });
+    }
+
+    // Elimina registro en la base de datos
+    await pool.query('DELETE FROM html_files WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Error al eliminar el archivo.' });
+  }
+});
+
 // Archivos estáticos y SPA
 app.use('/uploads', express.static(uploadDir));
 const buildPath = path.join(__dirname, 'build');
