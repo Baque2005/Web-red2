@@ -311,9 +311,7 @@ app.get('/test-session', (req, res) => {
   });
 });
 
-// Admin
-const ADMIN_ID = "106589782394147462198";
-
+// Obtener todos los usuarios (solo admin)
 app.get('/users/all', async (req, res) => {
   let user = req.user;
   const auth = req.headers.authorization;
@@ -323,18 +321,25 @@ app.get('/users/all', async (req, res) => {
     } catch {}
   }
 
-  if (!user || String(user.id) !== ADMIN_ID) {
+  // Consulta el rol del usuario autenticado
+  let isAdmin = false;
+  if (user && user.id) {
+    const result = await pool.query('SELECT rol FROM users WHERE id = $1', [user.id]);
+    isAdmin = result.rows[0]?.rol === 'admin';
+  }
+  if (!isAdmin) {
     return res.status(403).json({ users: [] });
   }
 
   try {
-    const result = await pool.query('SELECT id, name, email, photo FROM users ORDER BY id');
+    const result = await pool.query('SELECT id, name, email, photo, rol FROM users ORDER BY id');
     res.json({ users: result.rows });
   } catch (err) {
     res.status(500).json({ users: [] });
   }
 });
 
+// Eliminar usuario (solo admin)
 app.delete('/users/delete/:id', async (req, res) => {
   let user = req.user;
   const auth = req.headers.authorization;
@@ -344,7 +349,13 @@ app.delete('/users/delete/:id', async (req, res) => {
     } catch {}
   }
 
-  if (!user || String(user.id) !== ADMIN_ID) {
+  // Consulta el rol del usuario autenticado
+  let isAdmin = false;
+  if (user && user.id) {
+    const result = await pool.query('SELECT rol FROM users WHERE id = $1', [user.id]);
+    isAdmin = result.rows[0]?.rol === 'admin';
+  }
+  if (!isAdmin) {
     return res.status(403).json({ success: false, message: 'No autorizado.' });
   }
 
@@ -358,7 +369,7 @@ app.delete('/users/delete/:id', async (req, res) => {
   }
 });
 
-// Eliminar archivo (Supabase + DB)
+// Eliminar archivo (admin puede eliminar cualquiera)
 app.delete('/files/delete/:id', async (req, res) => {
   try {
     const result = await pool.query(
@@ -374,6 +385,7 @@ app.delete('/files/delete/:id', async (req, res) => {
 
     // Autenticación
     let currentUserId = req.user && req.user.id ? req.user.id : null;
+    let isAdmin = false;
     if (!currentUserId) {
       const auth = req.headers.authorization;
       if (auth && auth.startsWith('Bearer ')) {
@@ -383,9 +395,13 @@ app.delete('/files/delete/:id', async (req, res) => {
         } catch {}
       }
     }
+    if (currentUserId) {
+      const result = await pool.query('SELECT rol FROM users WHERE id = $1', [currentUserId]);
+      isAdmin = result.rows[0]?.rol === 'admin';
+    }
 
     // Permitir al admin eliminar cualquier archivo
-    if (!currentUserId || (String(currentUserId) !== String(user_id) && String(currentUserId) !== ADMIN_ID)) {
+    if (!currentUserId || (String(currentUserId) !== String(user_id) && !isAdmin)) {
       return res.status(403).json({ success: false, message: 'No autorizado.' });
     }
 
@@ -395,7 +411,6 @@ app.delete('/files/delete/:id', async (req, res) => {
       .remove([file_data]);
 
     if (supaError) {
-      // Permitir continuar si el error es "Object not found" (ya no existe)
       if (
         supaError.message &&
         supaError.message.toLowerCase().includes('not found')
@@ -407,7 +422,6 @@ app.delete('/files/delete/:id', async (req, res) => {
       }
     }
 
-    // Elimina registro en la base de datos
     await pool.query('DELETE FROM html_files WHERE id = $1', [req.params.id]);
     res.json({ success: true });
   } catch (err) {
