@@ -194,13 +194,17 @@ app.post('/files/upload', (req, res) => {
   });
 });
 
+// Tabla likes: CREATE TABLE file_likes (id SERIAL PRIMARY KEY, file_id INT, user_id INT, created_at TIMESTAMP DEFAULT NOW(), UNIQUE(file_id, user_id));
+// ALTER TABLE html_files ADD COLUMN downloads INT DEFAULT 0;
+
 app.get('/files', async (req, res) => {
   try {
     const { search = '', user = '', tipo = '', categoria = '', page = 1 } = req.query;
     const limit = 10;
     const offset = (parseInt(page) - 1) * limit;
     let query = `
-      SELECT f.id, f.filename, f.file_data, f.user_id, u.name AS user_name, f.tipo, f.categoria, f.descripcion
+      SELECT f.id, f.filename, f.file_data, f.user_id, u.name AS user_name, f.tipo, f.categoria, f.descripcion, f.downloads,
+        (SELECT COUNT(*) FROM file_likes WHERE file_id = f.id) AS likes
       FROM html_files f
       JOIN users u ON f.user_id = u.id
       WHERE 1=1
@@ -236,13 +240,80 @@ app.get('/files', async (req, res) => {
   }
 });
 
+app.get('/files/:id/likes', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rows } = await pool.query('SELECT COUNT(*)::int AS likes FROM file_likes WHERE file_id = $1', [id]);
+    res.json({ likes: rows[0]?.likes || 0 });
+  } catch {
+    res.json({ likes: 0 });
+  }
+});
+
+app.post('/files/:id/like', async (req, res) => {
+  let userId = req.user?.id;
+  const auth = req.headers.authorization;
+  if (!userId && auth?.startsWith('Bearer ')) {
+    try {
+      const user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
+      if (user?.id) userId = user.id;
+    } catch {}
+  }
+  if (!userId) return res.status(401).json({ success: false, message: 'No autenticado' });
+  const fileId = req.params.id;
+  try {
+    await pool.query('INSERT INTO file_likes (file_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [fileId, userId]);
+    const { rows } = await pool.query('SELECT COUNT(*)::int AS likes FROM file_likes WHERE file_id = $1', [fileId]);
+    res.json({ success: true, likes: rows[0]?.likes || 0 });
+  } catch {
+    res.status(500).json({ success: false });
+  }
+});
+
+app.post('/files/:id/unlike', async (req, res) => {
+  let userId = req.user?.id;
+  const auth = req.headers.authorization;
+  if (!userId && auth?.startsWith('Bearer ')) {
+    try {
+      const user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
+      if (user?.id) userId = user.id;
+    } catch {}
+  }
+  if (!userId) return res.status(401).json({ success: false, message: 'No autenticado' });
+  const fileId = req.params.id;
+  try {
+    await pool.query('DELETE FROM file_likes WHERE file_id = $1 AND user_id = $2', [fileId, userId]);
+    const { rows } = await pool.query('SELECT COUNT(*)::int AS likes FROM file_likes WHERE file_id = $1', [fileId]);
+    res.json({ success: true, likes: rows[0]?.likes || 0 });
+  } catch {
+    res.status(500).json({ success: false });
+  }
+});
+
+app.get('/files/:id/liked', async (req, res) => {
+  let userId = req.user?.id;
+  const auth = req.headers.authorization;
+  if (!userId && auth?.startsWith('Bearer ')) {
+    try {
+      const user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
+      if (user?.id) userId = user.id;
+    } catch {}
+  }
+  if (!userId) return res.json({ liked: false });
+  const fileId = req.params.id;
+  const { rows } = await pool.query('SELECT 1 FROM file_likes WHERE file_id = $1 AND user_id = $2 LIMIT 1', [fileId, userId]);
+  res.json({ liked: rows.length > 0 });
+});
+
 app.get('/files/download/:filedata', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT filename, file_url FROM html_files WHERE file_data = $1 LIMIT 1',
+      'SELECT id, filename, file_url, downloads FROM html_files WHERE file_data = $1 LIMIT 1',
       [req.params.filedata]
     );
     if (!rows.length) return res.status(404).json({ success: false, message: 'Archivo no encontrado.' });
+    // Incrementa descargas
+    await pool.query('UPDATE html_files SET downloads = downloads + 1 WHERE id = $1', [rows[0].id]);
     res.redirect(rows[0].file_url);
   } catch (err) {
     res.status(500).json({ success: false, message: 'Error al descargar el archivo.' });
