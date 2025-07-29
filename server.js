@@ -11,6 +11,7 @@ const jwt = require('jsonwebtoken');
 const sanitizeHtml = require('sanitize-html');
 require('dotenv').config();
 require('./auth/googleAuth'); // Estrategia de Google
+const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 const pool = require('./config/db');
@@ -18,6 +19,11 @@ const authRoutes = require('./routes/auth');
 
 const isDev = process.env.NODE_ENV === 'development';
 const CLIENT_URL = isDev ? process.env.CLIENT_URL_DEV : process.env.CLIENT_URL_PROD;
+
+// Configuración de Supabase
+const SUPABASE_URL = 'https://dpkubmzabfqwgduifpzo.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRwa3VibXphYmZxd2dkdWlmcHpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM3NjIyNTQsImV4cCI6MjA2OTMzODI1NH0.NH2X9v-dLaeIAF_eyPwlbAm6TzX1MeE7CraH3VxJ1yo';
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // Crear carpeta uploads si no existe
 const uploadDir = path.join(__dirname, 'uploads');
@@ -140,50 +146,64 @@ const upload = multer({
   }
 });
 
-// Subida de archivos HTML con manejo explícito de error multer
+// Subida de archivos HTML a Supabase Storage
 app.post('/files/upload', (req, res, next) => {
-  upload.single('file')(req, res, (err) => {
+  upload.single('file')(req, res, async (err) => {
     if (err) {
       return res.status(400).json({ success: false, message: err.message });
     }
-    next();
-  });
-}, async (req, res) => {
-  // --- AUTENTICACIÓN POR SESIÓN O JWT ---
-  let user = req.user;
-  if (!user) {
-    // Si no hay sesión, intenta con JWT
-    const auth = req.headers.authorization;
-    if (auth && auth.startsWith('Bearer ')) {
-      try {
-        user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
-      } catch {
-        user = null;
+    // --- AUTENTICACIÓN POR SESIÓN O JWT ---
+    let user = req.user;
+    if (!user) {
+      const auth = req.headers.authorization;
+      if (auth && auth.startsWith('Bearer ')) {
+        try {
+          user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
+        } catch {
+          user = null;
+        }
       }
     }
-  }
-  if (!user || !user.id) {
-    return res.status(401).json({ success: false, message: 'No autenticado' });
-  }
+    if (!user || !user.id) {
+      return res.status(401).json({ success: false, message: 'No autenticado' });
+    }
 
-  if (!req.file) {
-    return res.status(400).json({ success: false, message: 'No se recibió archivo HTML' });
-  }
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No se recibió archivo HTML' });
+    }
 
-  const { originalname, filename } = req.file;
-  const file_data = filename;
-  const user_id = user.id;
+    const { originalname, buffer } = req.file;
+    const uniqueName = uuidv4() + '.html';
+    const user_id = user.id;
 
-  try {
-    await pool.query(
-      'INSERT INTO html_files (user_id, filename, file_data, created_at) VALUES ($1, $2, $3, NOW())',
-      [user_id, originalname, file_data]
-    );
-    res.json({ success: true, message: 'Archivo subido correctamente.' });
-  } catch (err) {
-    console.error('Error al guardar en DB:', err);
-    res.status(500).json({ success: false, message: 'Error al guardar en la base de datos.' });
-  }
+    try {
+      // Subir a Supabase Storage
+      const { data, error } = await supabase.storage
+        .from('html-files')
+        .upload(uniqueName, buffer, {
+          contentType: 'text/html',
+          upsert: false
+        });
+
+      if (error) {
+        console.error('Error al subir a Supabase:', error);
+        return res.status(500).json({ success: false, message: 'Error al subir a Supabase.' });
+      }
+
+      // Obtener URL pública
+      const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/html-files/${uniqueName}`;
+
+      // Guardar en la base de datos
+      await pool.query(
+        'INSERT INTO html_files (user_id, filename, file_data, file_url, created_at) VALUES ($1, $2, $3, $4, NOW())',
+        [user_id, originalname, uniqueName, publicUrl]
+      );
+      res.json({ success: true, message: 'Archivo subido correctamente.' });
+    } catch (err) {
+      console.error('Error al guardar en DB o Supabase:', err);
+      res.status(500).json({ success: false, message: 'Error al guardar en la base de datos.' });
+    }
+  });
 });
 
 // Listar archivos
