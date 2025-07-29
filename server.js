@@ -289,29 +289,35 @@ app.get('/files/view/:filedata', (req, res) => {
   const fileName = req.params.filedata;
   const filePath = path.join(uploadDir, fileName);
 
-  fs.readFile(filePath, 'utf8', (err, html) => {
+  fs.access(filePath, fs.constants.F_OK, (err) => {
     if (err) {
       console.error('Archivo no encontrado:', filePath);
-      return res.status(404).send('Archivo no encontrado');
+      return res.status(404).send('<div style="font-family:sans-serif;padding:2rem;text-align:center;color:#b91c1c;background:#fef2f2;border-radius:1rem;">Archivo HTML no encontrado.<br>Verifica que el enlace sea correcto o que el archivo no haya sido eliminado.</div>');
     }
-    // Sanitiza el HTML antes de enviarlo
-    const cleanHtml = sanitizeHtml(html, {
-      allowedTags: [
-        'b', 'i', 'em', 'strong', 'u', 'p', 'br', 'span', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-        'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'img', 'a', 'blockquote', 'pre', 'code'
-      ],
-      allowedAttributes: {
-        a: ['href', 'title', 'target', 'rel'],
-        img: ['src', 'alt', 'title', 'width', 'height'],
-        '*': ['style', 'class']
-      },
-      allowedSchemes: ['http', 'https', 'mailto'],
-      allowedSchemesByTag: {},
-      allowedIframeHostnames: [],
-      disallowedTagsMode: 'discard'
+    fs.readFile(filePath, 'utf8', (err, html) => {
+      if (err) {
+        console.error('Error leyendo archivo:', filePath);
+        return res.status(500).send('<div style="font-family:sans-serif;padding:2rem;text-align:center;color:#b91c1c;background:#fef2f2;border-radius:1rem;">Error al leer el archivo HTML.</div>');
+      }
+      // Sanitiza el HTML antes de enviarlo
+      const cleanHtml = sanitizeHtml(html, {
+        allowedTags: [
+          'b', 'i', 'em', 'strong', 'u', 'p', 'br', 'span', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+          'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'img', 'a', 'blockquote', 'pre', 'code'
+        ],
+        allowedAttributes: {
+          a: ['href', 'title', 'target', 'rel'],
+          img: ['src', 'alt', 'title', 'width', 'height'],
+          '*': ['style', 'class']
+        },
+        allowedSchemes: ['http', 'https', 'mailto'],
+        allowedSchemesByTag: {},
+        allowedIframeHostnames: [],
+        disallowedTagsMode: 'discard'
+      });
+      res.setHeader('Content-Type', 'text/html');
+      res.send(cleanHtml);
     });
-    res.setHeader('Content-Type', 'text/html');
-    res.send(cleanHtml);
   });
 });
 
