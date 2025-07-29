@@ -156,6 +156,14 @@ app.post('/files/upload', (req, res) => {
       return res.status(400).json({ success: false, message: 'No se recibió archivo HTML' });
     }
 
+    // Recoge los nuevos campos del formulario
+    const tipo = req.body.tipo || '';
+    const categoria = req.body.categoria || '';
+    const descripcion = req.body.descripcion || '';
+    if (!tipo || !categoria) {
+      return res.status(400).json({ success: false, message: 'Debes seleccionar tipo y categoría.' });
+    }
+
     const uniqueName = uuidv4() + '.html';
     const { originalname, buffer } = req.file;
 
@@ -174,8 +182,8 @@ app.post('/files/upload', (req, res) => {
 
       const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/html-files/${uniqueName}`;
       await pool.query(
-        'INSERT INTO html_files (user_id, filename, file_data, file_url, created_at) VALUES ($1, $2, $3, $4, NOW())',
-        [user.id, originalname, uniqueName, publicUrl]
+        'INSERT INTO html_files (user_id, filename, file_data, file_url, tipo, categoria, descripcion, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())',
+        [user.id, originalname, uniqueName, publicUrl, tipo, categoria, descripcion]
       );
 
       res.json({ success: true, message: 'Archivo subido correctamente.' });
@@ -188,11 +196,11 @@ app.post('/files/upload', (req, res) => {
 
 app.get('/files', async (req, res) => {
   try {
-    const { search = '', user = '', page = 1 } = req.query;
+    const { search = '', user = '', tipo = '', categoria = '', page = 1 } = req.query;
     const limit = 10;
     const offset = (parseInt(page) - 1) * limit;
     let query = `
-      SELECT f.id, f.filename, f.file_data, f.user_id, u.name AS user_name
+      SELECT f.id, f.filename, f.file_data, f.user_id, u.name AS user_name, f.tipo, f.categoria, f.descripcion
       FROM html_files f
       JOIN users u ON f.user_id = u.id
       WHERE 1=1
@@ -207,6 +215,14 @@ app.get('/files', async (req, res) => {
     if (user) {
       query += ` AND u.name ILIKE $${idx++}`;
       params.push(`%${user}%`);
+    }
+    if (tipo) {
+      query += ` AND f.tipo = $${idx++}`;
+      params.push(tipo);
+    }
+    if (categoria) {
+      query += ` AND f.categoria = $${idx++}`;
+      params.push(categoria);
     }
 
     query += ` ORDER BY f.created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`;
