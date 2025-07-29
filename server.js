@@ -66,12 +66,13 @@ app.use((req, res, next) => {
   next();
 });
 
-// Middleware para agregar usuario autenticado a onlineUsers en cada petición
+// Middleware para manejar usuarios online
 let onlineUsers = new Set();
 let onlineTimestamps = {}; // userId: timestamp
 
 app.use((req, res, next) => {
   let userId = null;
+
   if (req.user && req.user.id) {
     userId = req.user.id;
   } else {
@@ -84,10 +85,12 @@ app.use((req, res, next) => {
       } catch {}
     }
   }
+
   if (userId) {
     onlineUsers.add(userId);
     onlineTimestamps[userId] = Date.now();
   }
+
   next();
 });
 
@@ -95,7 +98,7 @@ app.use((req, res, next) => {
 setInterval(() => {
   const now = Date.now();
   for (const userId of onlineUsers) {
-    if (!onlineTimestamps[userId] || now - onlineTimestamps[userId] > 15000) { // 15s sin ping
+    if (!onlineTimestamps[userId] || now - onlineTimestamps[userId] > 15000) { // 15s sin actividad
       onlineUsers.delete(userId);
       delete onlineTimestamps[userId];
     }
@@ -121,23 +124,11 @@ app.get('/users/online', async (req, res) => {
   }
 });
 
-// Configurar multer con nombre aleatorio y extensión .html
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueName = uuidv4();
-    console.log(`Guardando archivo original: ${file.originalname}, mime: ${file.mimetype}, como: ${uniqueName}.html`);
-    cb(null, uniqueName + '.html');
-  }
-});
-
+// Configurar multer para almacenamiento en memoria (para Supabase)
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 2 * 1024 * 1024 }, // 2MB
   fileFilter: (req, file, cb) => {
-    console.log(`fileFilter: tipo mime recibido: ${file.mimetype}, archivo: ${file.originalname}`);
     if (file.mimetype === 'text/html') {
       cb(null, true);
     } else {
@@ -152,7 +143,8 @@ app.post('/files/upload', (req, res, next) => {
     if (err) {
       return res.status(400).json({ success: false, message: err.message });
     }
-    // --- AUTENTICACIÓN POR SESIÓN O JWT ---
+
+    // Autenticación
     let user = req.user;
     if (!user) {
       const auth = req.headers.authorization;
@@ -164,6 +156,7 @@ app.post('/files/upload', (req, res, next) => {
         }
       }
     }
+
     if (!user || !user.id) {
       return res.status(401).json({ success: false, message: 'No autenticado' });
     }
@@ -198,6 +191,7 @@ app.post('/files/upload', (req, res, next) => {
         'INSERT INTO html_files (user_id, filename, file_data, file_url, created_at) VALUES ($1, $2, $3, $4, NOW())',
         [user_id, originalname, uniqueName, publicUrl]
       );
+
       res.json({ success: true, message: 'Archivo subido correctamente.' });
     } catch (err) {
       console.error('Error al guardar en DB o Supabase:', err);
@@ -273,7 +267,7 @@ app.delete('/files/delete/:id', async (req, res) => {
 
     const { file_data, user_id } = result.rows[0];
 
-    // --- AUTENTICACIÓN POR SESIÓN O JWT ---
+    // Autenticación
     let currentUserId = req.user && req.user.id ? req.user.id : null;
     if (!currentUserId) {
       const auth = req.headers.authorization;
@@ -312,12 +306,20 @@ app.get('/files/view/:filedata', (req, res) => {
   fs.access(filePath, fs.constants.F_OK, (err) => {
     if (err) {
       console.error('Archivo no encontrado:', filePath);
-      return res.status(404).send('<div style="font-family:sans-serif;padding:2rem;text-align:center;color:#b91c1c;background:#fef2f2;border-radius:1rem;">Archivo HTML no encontrado.<br>Verifica que el enlace sea correcto o que el archivo no haya sido eliminado.</div>');
+      return res.status(404).send(`
+        <div style="font-family:sans-serif;padding:2rem;text-align:center;color:#b91c1c;background:#fef2f2;border-radius:1rem;">
+          Archivo HTML no encontrado.<br>Verifica que el enlace sea correcto o que el archivo no haya sido eliminado.
+        </div>
+      `);
     }
     fs.readFile(filePath, 'utf8', (err, html) => {
       if (err) {
         console.error('Error leyendo archivo:', filePath);
-        return res.status(500).send('<div style="font-family:sans-serif;padding:2rem;text-align:center;color:#b91c1c;background:#fef2f2;border-radius:1rem;">Error al leer el archivo HTML.</div>');
+        return res.status(500).send(`
+          <div style="font-family:sans-serif;padding:2rem;text-align:center;color:#b91c1c;background:#fef2f2;border-radius:1rem;">
+            Error al leer el archivo HTML.
+          </div>
+        `);
       }
       // Sanitiza el HTML antes de enviarlo
       const cleanHtml = sanitizeHtml(html, {
@@ -331,8 +333,6 @@ app.get('/files/view/:filedata', (req, res) => {
           '*': ['style', 'class']
         },
         allowedSchemes: ['http', 'https', 'mailto'],
-        allowedSchemesByTag: {},
-        allowedIframeHostnames: [],
         disallowedTagsMode: 'discard'
       });
       res.setHeader('Content-Type', 'text/html');
@@ -341,9 +341,10 @@ app.get('/files/view/:filedata', (req, res) => {
   });
 });
 
-// Ruta ping para mantener la sesión activa
+// Ruta ping para mantener la sesión activa y actualizar usuarios online
 app.post('/users/ping', (req, res) => {
   let userId = null;
+
   if (req.user && req.user.id) {
     userId = req.user.id;
   } else {
@@ -355,14 +356,16 @@ app.post('/users/ping', (req, res) => {
       } catch {}
     }
   }
+
   if (userId) {
     onlineUsers.add(userId);
     onlineTimestamps[userId] = Date.now();
   }
+
   res.status(200).json({ success: true });
 });
 
-// Ruta para testear la sesión y cookies
+// Ruta para testear sesión y cookies
 app.get('/test-session', (req, res) => {
   console.log('--- /test-session ---');
   console.log('Cookies:', req.headers.cookie);
@@ -378,12 +381,12 @@ app.get('/test-session', (req, res) => {
   });
 });
 
-// Servir archivos estáticos del frontend React
+// Servir archivos estáticos
 app.use('/uploads', express.static(uploadDir));
 const buildPath = path.join(__dirname, 'build');
 app.use(express.static(buildPath));
 
-// Enviar index.html para cualquier ruta que NO sea API ni autenticación
+// Enviar index.html para rutas no API ni auth ni files (SPA React)
 app.get(/^\/(?!api|auth|files).*/, (req, res) => {
   res.sendFile(path.join(buildPath, 'index.html'), err => {
     if (err) {
@@ -393,19 +396,15 @@ app.get(/^\/(?!api|auth|files).*/, (req, res) => {
   });
 });
 
-// Ruta base (opcional, solo para demo)
+// Ruta base simple
 app.get('/', (req, res) => {
   res.send('Servidor corriendo 🚀');
 });
 
-// Iniciar servidor
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Servidor backend en http://localhost:${PORT}`);
-});
-
+// Marcar usuario offline
 app.post('/users/offline', (req, res) => {
   let userId = null;
+
   if (req.user && req.user.id) {
     userId = req.user.id;
   } else {
@@ -417,10 +416,17 @@ app.post('/users/offline', (req, res) => {
       } catch {}
     }
   }
+
   if (userId) {
     onlineUsers.delete(userId);
     delete onlineTimestamps[userId];
   }
+
   res.status(200).json({ success: true });
 });
 
+// Iniciar servidor
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Servidor backend en http://localhost:${PORT}`);
+});
