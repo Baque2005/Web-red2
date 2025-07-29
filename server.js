@@ -394,15 +394,24 @@ app.delete('/files/delete/:id', async (req, res) => {
       .from('html-files')
       .remove([file_data]);
 
-    if (supaError && supaError.statusCode !== '404') {
-      // Si el error no es "no existe", reporta error
-      return res.status(500).json({ success: false, message: 'Error al eliminar archivo en Supabase.' });
+    if (supaError) {
+      // Permitir continuar si el error es "Object not found" (ya no existe)
+      if (
+        supaError.message &&
+        supaError.message.toLowerCase().includes('not found')
+      ) {
+        // Continúa, el archivo ya no existe en storage
+      } else {
+        console.error('Error al eliminar en Supabase:', supaError);
+        return res.status(500).json({ success: false, message: 'Error al eliminar archivo en Supabase: ' + supaError.message });
+      }
     }
 
     // Elimina registro en la base de datos
     await pool.query('DELETE FROM html_files WHERE id = $1', [req.params.id]);
     res.json({ success: true });
   } catch (err) {
+    console.error('Error al eliminar archivo:', err);
     res.status(500).json({ success: false, message: 'Error al eliminar el archivo.' });
   }
 });
