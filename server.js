@@ -8,6 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const jwt = require('jsonwebtoken');
+const sanitizeHtml = require('sanitize-html');
 require('dotenv').config();
 require('./auth/googleAuth'); // Estrategia de Google
 
@@ -283,17 +284,34 @@ app.delete('/files/delete/:id', async (req, res) => {
   }
 });
 
-// Ver archivo HTML
+// Ver archivo HTML (sanitizado)
 app.get('/files/view/:filedata', (req, res) => {
   const fileName = req.params.filedata;
   const filePath = path.join(uploadDir, fileName);
 
-  fs.access(filePath, fs.constants.F_OK, (err) => {
+  fs.readFile(filePath, 'utf8', (err, html) => {
     if (err) {
       console.error('Archivo no encontrado:', filePath);
       return res.status(404).send('Archivo no encontrado');
     }
-    res.sendFile(filePath);
+    // Sanitiza el HTML antes de enviarlo
+    const cleanHtml = sanitizeHtml(html, {
+      allowedTags: [
+        'b', 'i', 'em', 'strong', 'u', 'p', 'br', 'span', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+        'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'img', 'a', 'blockquote', 'pre', 'code'
+      ],
+      allowedAttributes: {
+        a: ['href', 'title', 'target', 'rel'],
+        img: ['src', 'alt', 'title', 'width', 'height'],
+        '*': ['style', 'class']
+      },
+      allowedSchemes: ['http', 'https', 'mailto'],
+      allowedSchemesByTag: {},
+      allowedIframeHostnames: [],
+      disallowedTagsMode: 'discard'
+    });
+    res.setHeader('Content-Type', 'text/html');
+    res.send(cleanHtml);
   });
 });
 
