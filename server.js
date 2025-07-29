@@ -22,7 +22,7 @@ const CLIENT_URL = isDev ? process.env.CLIENT_URL_DEV : process.env.CLIENT_URL_P
 
 // Configuración de Supabase
 const SUPABASE_URL = 'https://dpkubmzabfqwgduifpzo.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'; // Usa variable de entorno en producción
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // Crear carpeta 'uploads' si no existe
