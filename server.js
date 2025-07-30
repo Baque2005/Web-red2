@@ -63,7 +63,7 @@ const corsOptions = {
   optionsSuccessStatus: 204,
 };
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 
 // Usuarios online
 let onlineUsers = new Set();
@@ -526,18 +526,22 @@ app.use('/uploads', express.static(uploadDir));
 const buildPath = path.join(__dirname, 'build');
 app.use(express.static(buildPath));
 
-app.get(/^\/(?!api|auth|files).*/, (req, res) => {
+// Elimina la línea duplicada (ya tienes app.use('/auth', authRoutes) arriba)
+// app.use('/auth', authRoutes);
+
+// Ruta raíz (opcional)
+app.get('/', (req, res) => {
+  res.send('Servidor corriendo 🚀');
+});
+
+// Catch-all seguro para SPA (NO captura '/', excluye prefijos de API/estáticos)
+app.get(/^\/(?!api|auth|files|uploads)(?:.+)$/, (req, res) => {
   res.sendFile(path.join(buildPath, 'index.html'), err => {
     if (err) {
       console.error('Error enviando index.html:', err);
       res.status(500).send('Error interno del servidor');
     }
   });
-});
-
-// Ruta raíz
-app.get('/', (req, res) => {
-  res.send('Servidor corriendo 🚀');
 });
 
 // Iniciar servidor
