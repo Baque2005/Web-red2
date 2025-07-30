@@ -229,11 +229,16 @@ app.get('/files', async (req, res) => {
       params.push(categoria);
     }
 
-    query += ` ORDER BY f.created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`;
-    params.push(limit, offset);
+    // Si no hay filtros, no agregues LIMIT/OFFSET (para evitar error de parámetros)
+    if (params.length > 0) {
+      query += ` ORDER BY f.created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`;
+      params.push(limit, offset);
+    } else {
+      query += ` ORDER BY f.created_at DESC`;
+    }
 
     const result = await pool.query(query, params);
-    res.json({ files: result.rows, hasMore: result.rows.length === limit });
+    res.json({ files: result.rows, hasMore: params.length > 0 ? result.rows.length === limit : false });
   } catch (err) {
     console.error('Error al listar archivos:', err);
     res.status(500).json({ files: [], hasMore: false });
