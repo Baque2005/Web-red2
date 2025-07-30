@@ -54,17 +54,16 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
-app.use(cors({
+// CORS: SOLO deja el middleware cors bien configurado y elimina el manual
+const corsOptions = {
   origin: CLIENT_URL,
-  credentials: true,
-}));
-
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', CLIENT_URL);
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-  next();
-});
+  methods: ['GET','POST','DELETE','PUT','PATCH','OPTIONS'],
+  allowedHeaders: ['Authorization', 'Content-Type', 'Accept', 'X-Requested-With'],
+  credentials: false, // usas JWT por header, no cookies
+  optionsSuccessStatus: 204,
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 // Usuarios online
 let onlineUsers = new Set();
@@ -263,7 +262,11 @@ app.post('/files/:id/like', async (req, res) => {
   if (!userId) return res.status(401).json({ success: false, message: 'No autenticado' });
   const fileId = req.params.id;
   try {
-    await pool.query('INSERT INTO file_likes (file_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [fileId, userId]);
+    // Cambia a ON CONFLICT (file_id, user_id) DO NOTHING
+    await pool.query(
+      'INSERT INTO file_likes (file_id, user_id) VALUES ($1, $2) ON CONFLICT (file_id, user_id) DO NOTHING',
+      [fileId, userId]
+    );
     const { rows } = await pool.query('SELECT COUNT(*)::int AS likes FROM file_likes WHERE file_id = $1', [fileId]);
     res.json({ success: true, likes: rows[0]?.likes || 0 });
   } catch {
