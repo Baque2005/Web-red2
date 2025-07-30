@@ -92,16 +92,35 @@ router.get('/user', (req, res) => {
   }
 });
 
-// Ruta para verificar el JWT
-router.get('/me', (req, res) => {
-  const auth = req.headers.authorization;
-  if (!auth) return res.status(401).json({ user: null });
-  const token = auth.replace('Bearer ', '');
+// Ruta para verificar el JWT y devolver el usuario con rol real de la base de datos
+router.get('/me', async (req, res) => {
   try {
-    const user = jwt.verify(token, process.env.JWT_SECRET);
-    res.json({ user });
-  } catch {
-    res.status(401).json({ user: null });
+    let userId = req.user?.id;
+
+    // Si usas JWT:
+    if (!userId && req.headers.authorization?.startsWith('Bearer ')) {
+      const token = req.headers.authorization.replace('Bearer ', '');
+      const payload = jwt.verify(token, process.env.JWT_SECRET);
+      userId = payload.id;
+    }
+
+    if (!userId) return res.json({ user: null });
+
+    // Trae el usuario con el campo rol real
+    const { rows } = await req.app.get('db')?.query?.(
+      'SELECT id, name, email, photo, rol FROM users WHERE id = $1',
+      [userId]
+    ) || await require('../config/db').query(
+      'SELECT id, name, email, photo, rol FROM users WHERE id = $1',
+      [userId]
+    );
+
+    if (!rows || rows.length === 0) return res.json({ user: null });
+
+    return res.json({ user: rows[0] });
+  } catch (err) {
+    console.error('Error en /auth/me:', err);
+    return res.status(500).json({ user: null });
   }
 });
 
