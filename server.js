@@ -212,33 +212,29 @@ app.get('/files', async (req, res) => {
     const params = [];
     let idx = 1;
 
-    if (search) {
+    // Solo agrega filtro si el parámetro tiene valor no vacío
+    if (search && search.trim() !== '') {
       query += ` AND f.filename ILIKE $${idx++}`;
       params.push(`%${search}%`);
     }
-    if (user) {
+    if (user && user.trim() !== '') {
       query += ` AND u.name ILIKE $${idx++}`;
       params.push(`%${user}%`);
     }
-    if (tipo) {
+    if (tipo && tipo.trim() !== '') {
       query += ` AND f.tipo = $${idx++}`;
       params.push(tipo);
     }
-    if (categoria) {
+    if (categoria && categoria.trim() !== '') {
       query += ` AND f.categoria = $${idx++}`;
       params.push(categoria);
     }
 
-    // Si no hay filtros, no agregues LIMIT/OFFSET (para evitar error de parámetros)
-    if (params.length > 0) {
-      query += ` ORDER BY f.created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`;
-      params.push(limit, offset);
-    } else {
-      query += ` ORDER BY f.created_at DESC`;
-    }
+    query += ` ORDER BY f.created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`;
+    params.push(limit, offset);
 
     const result = await pool.query(query, params);
-    res.json({ files: result.rows, hasMore: params.length > 0 ? result.rows.length === limit : false });
+    res.json({ files: result.rows, hasMore: result.rows.length === limit });
   } catch (err) {
     console.error('Error al listar archivos:', err);
     res.status(500).json({ files: [], hasMore: false });
