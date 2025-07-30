@@ -198,7 +198,8 @@ app.post('/files/upload', (req, res) => {
 
 app.get('/files', async (req, res) => {
   try {
-    const { search = '', user = '', tipo = '', categoria = '', page = 1 } = req.query;
+    // Añade userId al destructuring
+    const { search = '', user = '', tipo = '', categoria = '', page = 1, userId = '' } = req.query;
     const limit = 10;
     const offset = (parseInt(page) - 1) * limit;
     let query = `
@@ -227,6 +228,11 @@ app.get('/files', async (req, res) => {
     if (categoria && categoria.trim() !== '') {
       query += ` AND f.categoria = $${idx++}`;
       params.push(categoria);
+    }
+    // Nuevo: filtro por userId (preferente para exactitud)
+    if (userId && String(userId).trim() !== '') {
+      query += ` AND f.user_id = $${idx++}`;
+      params.push(Number(userId));
     }
 
     query += ` ORDER BY f.created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`;
@@ -452,6 +458,12 @@ app.delete('/users/delete/:id', async (req, res) => {
 
   const userIdToDelete = req.params.id;
   try {
+    // Elimina archivos de Supabase Storage antes de borrar html_files
+    const { rows: files } = await pool.query('SELECT file_data FROM html_files WHERE user_id = $1', [userIdToDelete]);
+    const keys = files.map(r => r.file_data);
+    if (keys.length) {
+      await supabase.storage.from('html-files').remove(keys);
+    }
     await pool.query('DELETE FROM html_files WHERE user_id = $1', [userIdToDelete]);
     await pool.query('DELETE FROM users WHERE id = $1', [userIdToDelete]);
     res.json({ success: true });
