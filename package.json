@@ -12,9 +12,11 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@octokit/rest": "^22.0.0",
     "@supabase/supabase-js": "^2.53.0",
     "connect-pg-simple": "^10.0.0",
     "cors": "^2.8.5",
+    "dayjs": "^1.11.13",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
     "express-session": "^1.18.2",
