@@ -589,19 +589,28 @@ app.get(/^\/(?!api|auth|files|uploads)(?:.+)$/, (req, res) => {
 });
 app.get('/files/download/:year/:month/:filename', async (req, res) => {
   const { year, month, filename } = req.params;
-  // Construye la ruta relativa dentro del bucket
   const filePath = `${year}/${month}/${filename}`;
   try {
+    // Descarga el archivo como buffer desde Supabase Storage
     const { data, error } = await supabase
       .storage
       .from('html-files')
-      .createSignedUrl(filePath, 60);
+      .download(filePath);
 
-    if (error || !data?.signedUrl) {
+    if (error || !data) {
       return res.status(404).json({ error: 'Archivo no encontrado en Supabase.' });
     }
 
-    res.redirect(data.signedUrl);
+    // Forzar descarga con el nombre original
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    // data puede ser un ReadableStream (Node >=18) o Buffer
+    if (typeof data.pipe === 'function') {
+      data.pipe(res);
+    } else {
+      res.end(data);
+    }
   } catch (err) {
     res.status(500).json({ error: 'Error interno del servidor.' });
   }
