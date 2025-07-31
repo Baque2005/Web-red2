@@ -593,3 +593,34 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Servidor backend en http://localhost:${PORT}`);
 });
+
+// Endpoint de descarga directa desde Supabase Storage usando ruta completa
+app.get('/files/download/*', async (req, res) => {
+  try {
+    const filePath = req.params[0]; // ruta relativa, ej: 2025/07/uuid.html
+    const bucketName = 'html-files';
+
+    const { data, error } = await supabase.storage
+      .from(bucketName)
+      .download(filePath);
+
+    if (error || !data) {
+      console.error('Error al descargar archivo:', error);
+      return res.status(404).send('Archivo no encontrado');
+    }
+
+    const filename = filePath.split('/').pop() || 'archivo.html';
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    // data es un ReadableStream en Node >=18, Buffer en Node <18
+    if (typeof data.pipe === 'function') {
+      data.pipe(res);
+    } else {
+      res.end(data);
+    }
+  } catch (err) {
+    console.error('Error en endpoint descarga:', err);
+    res.status(500).send('Error interno del servidor');
+  }
+});
