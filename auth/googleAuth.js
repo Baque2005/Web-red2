@@ -1,66 +1,54 @@
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const pool = require('../config/db');
-require('dotenv').config();
 
 const isDev = process.env.NODE_ENV === 'development';
-
-const callbackURL = isDev
+const CALLBACK_URL = isDev
   ? process.env.GOOGLE_CALLBACK_URL_DEV
   : process.env.GOOGLE_CALLBACK_URL_PROD;
 
-passport.use(new GoogleStrategy(
-  {
-    clientID: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL,
-    scope: ['profile', 'email'],
-  },
-  async (accessToken, refreshToken, profile, done) => {
-    try {
-      const { id: googleId, displayName, emails, photos } = profile;
-      const email = emails?.[0]?.value || null;
-      const photo = photos?.[0]?.value || null;
+passport.use(new GoogleStrategy({
+  clientID: process.env.GOOGLE_CLIENT_ID,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  callbackURL: CALLBACK_URL,
+}, async (accessToken, refreshToken, profile, done) => {
+  try {
+    // Obtiene los datos del perfil de Google
+    const email = profile.emails[0].value;
+    const photo = profile.photos[0].value;
+    const name = profile.displayName;
 
-      // Buscar usuario existente por google_id
-      const existingUser = await pool.query(
-        'SELECT * FROM users WHERE google_id = $1',
-        [googleId]
+    // Busca si el usuario ya existe
+    const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    let user;
+
+    if (rows.length > 0) {
+      user = rows[0]; // Usuario ya existe
+    } else {
+      // Crea un nuevo usuario si no existe
+      const insert = await pool.query(
+        'INSERT INTO users (name, email, photo, rol) VALUES ($1, $2, $3, $4) RETURNING *',
+        [name, email, photo, 'miembro']
       );
-
-      if (existingUser.rows.length > 0) {
-        // Usuario ya existe, retornar usuario
-        return done(null, existingUser.rows[0]);
-      }
-
-      // Si no existe, crear usuario nuevo
-      const now = new Date();
-      const insertQuery = `
-        INSERT INTO users (google_id, name, email, photo, registered_at)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING *
-      `;
-      const values = [googleId, displayName, email, photo, now];
-
-      const newUser = await pool.query(insertQuery, values);
-      return done(null, newUser.rows[0]);
-    } catch (err) {
-      console.error('Error in GoogleStrategy:', err);
-      return done(err, null);
+      user = insert.rows[0];
     }
-  }
-));
 
-// Serializar usuario con el ID interno único (no google_id)
+    return done(null, user);
+  } catch (err) {
+    return done(err, null);
+  }
+}));
+
+// Serializa el usuario usando su ID interno (no el google_id)
 passport.serializeUser((user, done) => {
-  done(null, user.id); // usa el id interno
+  done(null, user.id);
 });
 
-// Deserializar usuario usando el ID interno
+// Deserializa el usuario buscando por ID interno en la base de datos
 passport.deserializeUser(async (id, done) => {
   try {
-    const result = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
-    done(null, result.rows[0] || null);
+    const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
+    done(null, rows[0] || null);
   } catch (err) {
     done(err, null);
   }

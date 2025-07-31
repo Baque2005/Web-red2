@@ -348,7 +348,8 @@ app.get('/files/download/:filedata', async (req, res) => {
     if (!rows[0].supabase_url) {
       return res.status(404).json({ success: false, message: 'Archivo no disponible para descargar.' });
     }
-    res.redirect(rows[0].supabase_url);
+    // Redirige correctamente a la URL pública de Supabase (asegúrate que la columna supabase_url contiene la URL completa)
+    return res.redirect(rows[0].supabase_url);
   } catch (err) {
     res.status(500).json({ success: false, message: 'Error al descargar el archivo.' });
   }
