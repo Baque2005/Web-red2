@@ -6,12 +6,15 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { v4: uuidv4 } = require('uuid');
 const jwt = require('jsonwebtoken');
 const sanitizeHtml = require('sanitize-html');
-require('dotenv').config();
-require('./auth/googleAuth'); // Estrategia de Google
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+}
+const dayjs = require('dayjs');
+const { v4: uuidv4 } = require('uuid');
 const { createClient } = require('@supabase/supabase-js');
+const { publishBuffer } = require('./services/githubPagesPublisher');
 
 const app = express();
 const pool = require('./config/db');
@@ -120,7 +123,7 @@ app.get('/users/online', async (req, res) => {
   }
 });
 
-// Subida de archivos HTML a Supabase Storage
+// Subida de archivos HTML a GitHub Pages (sin restricción de login)
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 2 * 1024 * 1024 },
@@ -137,25 +140,10 @@ app.post('/files/upload', (req, res) => {
   upload.single('file')(req, res, async (err) => {
     if (err) return res.status(400).json({ success: false, message: err.message });
 
-    let user = req.user;
-    if (!user) {
-      const auth = req.headers.authorization;
-      if (auth?.startsWith('Bearer ')) {
-        try {
-          user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
-        } catch {}
-      }
-    }
-
-    if (!user?.id) {
-      return res.status(401).json({ success: false, message: 'No autenticado' });
-    }
-
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'No se recibió archivo HTML' });
     }
 
-    // Recoge los nuevos campos del formulario
     const tipo = req.body.tipo || '';
     const categoria = req.body.categoria || '';
     const descripcion = req.body.descripcion || '';
@@ -163,31 +151,33 @@ app.post('/files/upload', (req, res) => {
       return res.status(400).json({ success: false, message: 'Debes seleccionar tipo y categoría.' });
     }
 
-    const uniqueName = uuidv4() + '.html';
-    const { originalname, buffer } = req.file;
+    // --- Nueva lógica de ruta única ---
+    const ext = (path.extname(req.file.originalname) || '.html').toLowerCase();
+    if (!['.html', '.htm'].includes(ext)) {
+      return res.status(400).json({ success: false, message: 'Solo se permiten archivos .html' });
+    }
+    const y = dayjs().format('YYYY');
+    const m = dayjs().format('MM');
+    const slug = uuidv4();
+    const targetPath = `${y}/${m}/${slug}${ext}`;
 
     try {
-      const { error } = await supabase.storage
-        .from('html-files')
-        .upload(uniqueName, buffer, {
-          contentType: 'text/html',
-          upsert: true,
-        });
+      // Publicar en GitHub Pages
+      const publicUrl = await publishBuffer({
+        buffer: req.file.buffer,
+        targetPath,
+        message: `publish: ${req.file.originalname} -> ${targetPath}`
+      });
 
-      if (error) {
-        console.error('Error al subir a Supabase:', error);
-        return res.status(500).json({ success: false, message: error.message });
-      }
-
-      const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/html-files/${uniqueName}`;
+      // Guarda en la base de datos (user_id puede ser null)
       await pool.query(
         'INSERT INTO html_files (user_id, filename, file_data, file_url, tipo, categoria, descripcion, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())',
-        [user.id, originalname, uniqueName, publicUrl, tipo, categoria, descripcion]
+        [null, req.file.originalname, targetPath, publicUrl, tipo, categoria, descripcion]
       );
 
-      res.json({ success: true, message: 'Archivo subido correctamente.' });
+      res.status(201).json({ success: true, message: 'Archivo subido correctamente.', publicUrl });
     } catch (err) {
-      console.error('Error al guardar en la base de datos:', err);
+      console.error('Error al subir a GitHub Pages:', err);
       res.status(500).json({ success: false, message: err.message });
     }
   });
