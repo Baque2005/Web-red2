@@ -162,22 +162,38 @@ app.post('/files/upload', (req, res) => {
     const targetPath = `${y}/${m}/${slug}${ext}`;
 
     try {
-      // Publicar en GitHub Pages
+      // 1. Subir a Supabase Storage (backup)
+      const supabaseKey = `html-files/${targetPath}`;
+      const { error: supaError } = await supabase
+        .storage
+        .from('html-files')
+        .upload(targetPath, req.file.buffer, { upsert: false, contentType: 'text/html' });
+      if (supaError && !String(supaError.message || '').toLowerCase().includes('already exists')) {
+        return res.status(500).json({ success: false, message: 'Error al subir a Supabase: ' + supaError.message });
+      }
+      // 2. Obtener URL pública de Supabase
+      const { data: publicData } = supabase
+        .storage
+        .from('html-files')
+        .getPublicUrl(targetPath);
+      const supabaseUrl = publicData?.publicUrl || null;
+
+      // 3. Publicar en GitHub Pages
       const publicUrl = await publishBuffer({
         buffer: req.file.buffer,
         targetPath,
         message: `publish: ${req.file.originalname} -> ${targetPath}`
       });
 
-      // Guarda en la base de datos (user_id puede ser null)
+      // 4. Guarda en la base de datos ambas rutas
       await pool.query(
-        'INSERT INTO html_files (user_id, filename, file_data, file_url, tipo, categoria, descripcion, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())',
-        [null, req.file.originalname, targetPath, publicUrl, tipo, categoria, descripcion]
+        'INSERT INTO html_files (user_id, filename, file_data, file_url, supabase_url, tipo, categoria, descripcion, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())',
+        [null, req.file.originalname, targetPath, publicUrl, supabaseUrl, tipo, categoria, descripcion]
       );
 
-      res.status(201).json({ success: true, message: 'Archivo subido correctamente.', publicUrl });
+      res.status(201).json({ success: true, message: 'Archivo subido correctamente.', publicUrl, supabaseUrl });
     } catch (err) {
-      console.error('Error al subir a GitHub Pages:', err);
+      console.error('Error al subir a GitHub Pages/Supabase:', err);
       res.status(500).json({ success: false, message: err.message });
     }
   });
