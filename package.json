@@ -2,6 +2,7 @@
   "name": "backend",
   "version": "1.0.0",
   "main": "index.js",
+  "type": "commonjs",
   "scripts": {
     "heroku-postbuild": "cd ../frontend && npm install && npm run build",
     "start": "node server.js",

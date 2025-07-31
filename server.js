@@ -628,27 +628,20 @@ app.get('/files/download/:year/:month/:filename', async (req, res) => {
   }
 });
 
-// Ejemplo de cómo listar archivos de Supabase con más de 10 resultados
-// Puedes usar este fragmento en tu endpoint de backend donde necesites listar archivos de Supabase Storage
-
-// Supón que tienes year y month definidos
-// const year = '2025';
-// const month = '07';
-
-const { data: files, error } = await supabase
-  .storage
-  .from('html-files')
-  .list(`${year}/${month}/`, {
-    limit: 1000, // trae hasta 1000 archivos
-    offset: 0,   // opcional, para paginación manual
-    sortBy: { column: 'name', order: 'asc' }
-  });
-
-if (error) {
-  console.error('Error al listar archivos en Supabase:', error);
-} else {
-  console.log('Archivos encontrados en Supabase:', files.length);
-}
+// ❌ Elimina este bloque de ejemplo fuera de cualquier función o endpoint:
+// const { data: files, error } = await supabase
+//   .storage
+//   .from('html-files')
+//   .list(`${year}/${month}/`, {
+//     limit: 1000,
+//     offset: 0,
+//     sortBy: { column: 'name', order: 'asc' }
+//   });
+// if (error) {
+//   console.error('Error al listar archivos en Supabase:', error);
+// } else {
+//   console.log('Archivos encontrados en Supabase:', files.length);
+// }
 
 // Iniciar servidor
 const PORT = process.env.PORT || 5000;
@@ -658,3 +651,18 @@ app.listen(PORT, () => {
 
 // Endpoint de descarga directa desde Supabase Storage usando ruta completa
 // Endpoint de descarga directa desde Supabase Storage usando ruta completa
+
+// Solución: Cambia el tipo de módulo a CommonJS
+// 1. Abre tu package.json y asegúrate de que NO tienes "type": "module"
+// 2. Si tienes "type": "module", elimínalo o cámbialo a "type": "commonjs"
+// 3. Así puedes usar require(...) normalmente
+
+// Si necesitas usar ES modules, cambia todas las líneas require(...) por import ... from ... y usa la extensión .mjs
+// Pero para tu proyecto actual, solo asegúrate de que package.json NO tenga "type": "module"
+// Solución: Cambia el tipo de módulo a CommonJS
+// 1. Abre tu package.json y asegúrate de que NO tienes "type": "module"
+// 2. Si tienes "type": "module", elimínalo o cámbialo a "type": "commonjs"
+// 3. Así puedes usar require(...) normalmente
+
+// Si necesitas usar ES modules, cambia todas las líneas require(...) por import ... from ... y usa la extensión .mjs
+// Pero para tu proyecto actual, solo asegúrate de que package.json NO tenga "type": "module"
