@@ -338,13 +338,17 @@ app.get('/files/:id/liked', async (req, res) => {
 app.get('/files/download/:filedata', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT id, filename, file_url, downloads FROM html_files WHERE file_data = $1 LIMIT 1',
+      'SELECT id, filename, supabase_url, downloads FROM html_files WHERE file_data = $1 LIMIT 1',
       [req.params.filedata]
     );
     if (!rows.length) return res.status(404).json({ success: false, message: 'Archivo no encontrado.' });
     // Incrementa descargas
     await pool.query('UPDATE html_files SET downloads = downloads + 1 WHERE id = $1', [rows[0].id]);
-    res.redirect(rows[0].file_url);
+    // Redirige a la URL pública de Supabase Storage
+    if (!rows[0].supabase_url) {
+      return res.status(404).json({ success: false, message: 'Archivo no disponible para descargar.' });
+    }
+    res.redirect(rows[0].supabase_url);
   } catch (err) {
     res.status(500).json({ success: false, message: 'Error al descargar el archivo.' });
   }
