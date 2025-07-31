@@ -598,7 +598,7 @@ app.get('/files/download/:year/:month/:filename', async (req, res) => {
       .download(filePath);
 
     if (error || !data) {
-      return res.status(404).json({ error: 'Archivo no encontrado en Supabase.' });
+      return res.status(404).send('Archivo no encontrado en Supabase.');
     }
 
     // Forzar descarga con el nombre original
@@ -607,12 +607,21 @@ app.get('/files/download/:year/:month/:filename', async (req, res) => {
 
     // data puede ser un ReadableStream (Node >=18) o Buffer
     if (typeof data.pipe === 'function') {
+      // Node >=18: data es ReadableStream
       data.pipe(res);
-    } else {
+    } else if (Buffer.isBuffer(data)) {
+      // Node <18: data es Buffer
       res.end(data);
+    } else if (data.arrayBuffer) {
+      // Supabase puede devolver un Blob en algunos entornos
+      data.arrayBuffer().then(buf => {
+        res.end(Buffer.from(buf));
+      });
+    } else {
+      res.status(500).send('No se pudo procesar el archivo.');
     }
   } catch (err) {
-    res.status(500).json({ error: 'Error interno del servidor.' });
+    res.status(500).send('Error interno del servidor.');
   }
 });
 
