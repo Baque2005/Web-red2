@@ -144,6 +144,20 @@ app.post('/files/upload', (req, res) => {
       return res.status(400).json({ success: false, message: 'No se recibió archivo HTML' });
     }
 
+    // Obtener user_id del JWT o sesión
+    let userId = req.user?.id;
+    const auth = req.headers.authorization;
+    if (!userId && auth?.startsWith('Bearer ')) {
+      try {
+        const token = auth.replace('Bearer ', '');
+        const user = jwt.verify(token, process.env.JWT_SECRET);
+        if (user?.id) userId = user.id;
+      } catch {}
+    }
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Debes iniciar sesión para subir archivos.' });
+    }
+
     const tipo = req.body.tipo || '';
     const categoria = req.body.categoria || '';
     const descripcion = req.body.descripcion || '';
@@ -185,10 +199,10 @@ app.post('/files/upload', (req, res) => {
         message: `publish: ${req.file.originalname} -> ${targetPath}`
       });
 
-      // 4. Guarda en la base de datos ambas rutas
+      // 4. Guarda en la base de datos ambas rutas (usa userId)
       await pool.query(
         'INSERT INTO html_files (user_id, filename, file_data, file_url, supabase_url, tipo, categoria, descripcion, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())',
-        [null, req.file.originalname, targetPath, publicUrl, supabaseUrl, tipo, categoria, descripcion]
+        [userId, req.file.originalname, targetPath, publicUrl, supabaseUrl, tipo, categoria, descripcion]
       );
 
       res.status(201).json({ success: true, message: 'Archivo subido correctamente.', publicUrl, supabaseUrl });
@@ -209,7 +223,7 @@ app.get('/files', async (req, res) => {
     const limit = 10;
     const offset = (parseInt(page) - 1) * limit;
     let query = `
-      SELECT f.id, f.filename, f.file_data, f.user_id, u.name AS user_name, f.tipo, f.categoria, f.descripcion, f.downloads,
+      SELECT f.id, f.filename, f.file_data, f.file_url, f.user_id, u.name AS user_name, f.tipo, f.categoria, f.descripcion, f.downloads,
         (SELECT COUNT(*) FROM file_likes WHERE file_id = f.id) AS likes
       FROM html_files f
       JOIN users u ON f.user_id = u.id
