@@ -14,23 +14,35 @@ passport.use(new GoogleStrategy({
 }, async (accessToken, refreshToken, profile, done) => {
   try {
     // Obtiene los datos del perfil de Google
+    const googleId = profile.id;
     const email = profile.emails[0].value;
     const photo = profile.photos[0].value;
     const name = profile.displayName;
 
-    // Busca si el usuario ya existe
-    const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    // Busca si el usuario ya existe por google_id
+    let { rows } = await pool.query('SELECT * FROM users WHERE google_id = $1', [googleId]);
     let user;
 
     if (rows.length > 0) {
       user = rows[0]; // Usuario ya existe
     } else {
-      // Crea un nuevo usuario si no existe
-      const insert = await pool.query(
-        'INSERT INTO users (name, email, photo, rol) VALUES ($1, $2, $3, $4) RETURNING *',
-        [name, email, photo, 'miembro']
-      );
-      user = insert.rows[0];
+      // Si no existe, verifica si hay un usuario con el mismo email (migración de cuentas antiguas)
+      const existing = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+      if (existing.rows.length > 0) {
+        // Actualiza ese usuario para agregarle el google_id
+        const update = await pool.query(
+          'UPDATE users SET google_id = $1, photo = $2 WHERE id = $3 RETURNING *',
+          [googleId, photo, existing.rows[0].id]
+        );
+        user = update.rows[0];
+      } else {
+        // Crea un nuevo usuario con google_id
+        const insert = await pool.query(
+          'INSERT INTO users (google_id, name, email, photo, rol) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+          [googleId, name, email, photo, 'miembro']
+        );
+        user = insert.rows[0];
+      }
     }
 
     return done(null, user);

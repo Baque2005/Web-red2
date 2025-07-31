@@ -338,19 +338,25 @@ app.get('/files/:id/liked', async (req, res) => {
 
 app.get('/files/download/:filedata', async (req, res) => {
   try {
+    // Busca el archivo por file_data
     const { rows } = await pool.query(
       'SELECT id, filename, supabase_url, downloads FROM html_files WHERE file_data = $1 LIMIT 1',
       [req.params.filedata]
     );
-    if (!rows.length) return res.status(404).json({ success: false, message: 'Archivo no encontrado.' });
+    if (!rows.length) {
+      return res.status(404).json({ success: false, message: 'Archivo no encontrado.' });
+    }
     // Incrementa descargas
     await pool.query('UPDATE html_files SET downloads = downloads + 1 WHERE id = $1', [rows[0].id]);
     // Redirige a la URL pública de Supabase Storage
-    if (!rows[0].supabase_url) {
+    const supabaseUrl = rows[0].supabase_url;
+    if (!supabaseUrl) {
       return res.status(404).json({ success: false, message: 'Archivo no disponible para descargar.' });
     }
-    // Redirige correctamente a la URL pública de Supabase (asegúrate que la columna supabase_url contiene la URL completa)
-    return res.redirect(rows[0].supabase_url);
+    // Validación extra: ¿la URL realmente existe?
+    // Opcional: puedes hacer un HEAD request para verificar si el archivo existe en Supabase
+    // Pero normalmente si la URL está bien formada, debe funcionar.
+    return res.redirect(supabaseUrl);
   } catch (err) {
     res.status(500).json({ success: false, message: 'Error al descargar el archivo.' });
   }
