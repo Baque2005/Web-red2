@@ -220,9 +220,10 @@ app.post('/files/upload', (req, res) => {
 app.get('/files', async (req, res) => {
   try {
     // Añade userId al destructuring
-    const { search = '', user = '', tipo = '', categoria = '', page = 1, userId = '' } = req.query;
-    const limit = 10;
-    const offset = (parseInt(page) - 1) * limit;
+    const { search = '', user = '', tipo = '', categoria = '', page = 1, userId = '', limit = 20 } = req.query;
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const pageLimit = Math.max(1, Math.min(parseInt(limit, 10) || 20, 100));
+    const offset = (pageNum - 1) * pageLimit;
     let query = `
       SELECT f.id, f.filename, f.file_data, f.file_url, f.user_id, u.name AS user_name, f.tipo, f.categoria, f.descripcion, f.downloads,
         (SELECT COUNT(*) FROM file_likes WHERE file_id = f.id) AS likes
@@ -257,10 +258,49 @@ app.get('/files', async (req, res) => {
     }
 
     query += ` ORDER BY f.created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`;
-    params.push(limit, offset);
+    params.push(pageLimit, offset);
 
     const result = await pool.query(query, params);
-    res.json({ files: result.rows, hasMore: result.rows.length === limit });
+
+    // Saber si hay más archivos para la siguiente página
+    let hasMore = false;
+    if (result.rows.length === pageLimit) {
+      // Consulta rápida: ¿hay al menos 1 más?
+      let countQuery = `
+        SELECT 1 FROM html_files f
+        JOIN users u ON f.user_id = u.id
+        WHERE 1=1
+      `;
+      const countParams = [];
+      let cidx = 1;
+      if (search && search.trim() !== '') {
+        countQuery += ` AND f.filename ILIKE $${cidx++}`;
+        countParams.push(`%${search}%`);
+      }
+      if (user && user.trim() !== '') {
+        countQuery += ` AND u.name ILIKE $${cidx++}`;
+        countParams.push(`%${user}%`);
+      }
+      if (tipo && tipo.trim() !== '') {
+        countQuery += ` AND f.tipo = $${cidx++}`;
+        countParams.push(tipo);
+      }
+      if (categoria && categoria.trim() !== '') {
+        countQuery += ` AND f.categoria = $${cidx++}`;
+        countParams.push(categoria);
+      }
+      if (userId && String(userId).trim() !== '') {
+        countQuery += ` AND f.user_id = $${cidx++}`;
+        countParams.push(Number(userId));
+      }
+      countQuery += ` OFFSET $${cidx}`;
+      countParams.push(offset + pageLimit);
+
+      const countRes = await pool.query(countQuery, countParams);
+      hasMore = countRes.rows.length > 0;
+    }
+
+    res.json({ files: result.rows, hasMore });
   } catch (err) {
     console.error('Error al listar archivos:', err);
     res.status(500).json({ files: [], hasMore: false });
