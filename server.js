@@ -628,6 +628,28 @@ app.get('/files/download/:year/:month/:filename', async (req, res) => {
   }
 });
 
+// Ejemplo de cómo listar archivos de Supabase con más de 10 resultados
+// Puedes usar este fragmento en tu endpoint de backend donde necesites listar archivos de Supabase Storage
+
+// Supón que tienes year y month definidos
+// const year = '2025';
+// const month = '07';
+
+const { data: files, error } = await supabase
+  .storage
+  .from('html-files')
+  .list(`${year}/${month}/`, {
+    limit: 1000, // trae hasta 1000 archivos
+    offset: 0,   // opcional, para paginación manual
+    sortBy: { column: 'name', order: 'asc' }
+  });
+
+if (error) {
+  console.error('Error al listar archivos en Supabase:', error);
+} else {
+  console.log('Archivos encontrados en Supabase:', files.length);
+}
+
 // Iniciar servidor
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
