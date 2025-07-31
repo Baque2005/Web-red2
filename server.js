@@ -591,6 +591,14 @@ app.get('/files/download/:year/:month/:filename', async (req, res) => {
   const { year, month, filename } = req.params;
   const filePath = `${year}/${month}/${filename}`;
   try {
+    // Busca el archivo en la base de datos por file_data para incrementar descargas
+    const { rows } = await pool.query(
+      'SELECT id FROM html_files WHERE file_data = $1 LIMIT 1',
+      [filePath]
+    );
+    if (rows.length) {
+      await pool.query('UPDATE html_files SET downloads = downloads + 1 WHERE id = $1', [rows[0].id]);
+    }
     // Descarga el archivo como buffer desde Supabase Storage
     const { data, error } = await supabase
       .storage
@@ -601,19 +609,14 @@ app.get('/files/download/:year/:month/:filename', async (req, res) => {
       return res.status(404).send('Archivo no encontrado en Supabase.');
     }
 
-    // Forzar descarga con el nombre original
     res.setHeader('Content-Type', 'application/octet-stream');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
 
-    // data puede ser un ReadableStream (Node >=18) o Buffer
     if (typeof data.pipe === 'function') {
-      // Node >=18: data es ReadableStream
       data.pipe(res);
     } else if (Buffer.isBuffer(data)) {
-      // Node <18: data es Buffer
       res.end(data);
     } else if (data.arrayBuffer) {
-      // Supabase puede devolver un Blob en algunos entornos
       data.arrayBuffer().then(buf => {
         res.end(Buffer.from(buf));
       });
