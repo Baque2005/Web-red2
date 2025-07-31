@@ -106,6 +106,7 @@ setInterval(() => {
 }, 10000);
 
 // Rutas
+require('./auth/googleAuth'); // <--- Esto debe ir ANTES de app.use('/auth', authRoutes)
 app.use('/auth', authRoutes);
 
 app.get('/users/online', async (req, res) => {
