@@ -606,6 +606,8 @@ app.delete('/files/delete/:id', async (req, res) => {
 });
 
 // Archivos estáticos y SPA
+app.use(express.static('public'));
+
 app.use('/uploads', express.static(uploadDir));
 const buildPath = path.join(__dirname, 'build');
 app.use(express.static(buildPath));
