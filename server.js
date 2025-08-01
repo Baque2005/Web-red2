@@ -553,7 +553,8 @@ app.delete('/files/delete/:id', async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'Archivo no encontrado.' });
+      // Archivo no encontrado, pero respondemos éxito para evitar error 404
+      return res.json({ success: true, message: 'Archivo no encontrado pero considerado eliminado.' });
     }
 
     const { file_data, user_id } = result.rows[0];
@@ -598,10 +599,10 @@ app.delete('/files/delete/:id', async (req, res) => {
     }
 
     await pool.query('DELETE FROM html_files WHERE id = $1', [req.params.id]);
-    res.json({ success: true });
+    return res.json({ success: true });
   } catch (err) {
     console.error('Error al eliminar archivo:', err);
-    res.status(500).json({ success: false, message: 'Error al eliminar el archivo.' });
+    return res.status(500).json({ success: false, message: 'Error al eliminar el archivo.' });
   }
 });
 
