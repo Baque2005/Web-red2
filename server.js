@@ -606,6 +606,23 @@ app.delete('/files/delete/:id', async (req, res) => {
   }
 });
 
+// 1. Requiere cookie-parser al inicio del archivo
+const cookieParser = require('cookie-parser');
+app.use(cookieParser());
+
+// Endpoint para renovar el access token usando el refresh token de la cookie
+app.post('/auth/refresh', (req, res) => {
+  const token = req.cookies.refreshToken;
+  if (!token) return res.sendStatus(401);
+
+  jwt.verify(token, process.env.REFRESH_SECRET, (err, user) => {
+    if (err) return res.sendStatus(403);
+
+    const newAccessToken = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '15m' });
+    res.json({ accessToken: newAccessToken });
+  });
+});
+
 // Archivos estáticos y SPA
 app.use(express.static('public'));
 
