@@ -59,7 +59,8 @@ router.get(
 // 👉 Endpoint para refrescar access token
 // Ahora espera refresh token en body JSON { refreshToken: '...' }
 router.post('/refresh', (req, res) => {
-  const { refreshToken } = req.body;
+  // Evitar error si req.body es undefined o no tiene refreshToken
+  const refreshToken = req.body?.refreshToken;
   if (!refreshToken) {
     return res.status(401).json({ error: 'No hay refresh token' });
   }
