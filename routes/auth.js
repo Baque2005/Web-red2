@@ -6,98 +6,108 @@ require('dotenv').config();
 const router = express.Router();
 
 const isDev = process.env.NODE_ENV === 'development';
-
 const CLIENT_URL = isDev
   ? process.env.CLIENT_URL_DEV
   : process.env.CLIENT_URL_PROD;
 
+// Función para crear access token (dura poco)
+const generateAccessToken = (user) => {
+  return jwt.sign(
+    { id: user.id, name: user.name, email: user.email, photo: user.photo },
+    process.env.JWT_SECRET,
+    { expiresIn: '15m' } // dura 15 minutos
+  );
+};
+
+// Función para crear refresh token (dura más)
+const generateRefreshToken = (user) => {
+  return jwt.sign(
+    { id: user.id },
+    process.env.JWT_REFRESH_SECRET,
+    { expiresIn: '7d' } // dura 7 días
+  );
+};
+
 // 👉 Ruta para iniciar sesión con Google
 router.get('/google', passport.authenticate('google', {
   scope: ['profile', 'email'],
-  prompt: 'select_account', // fuerza selección
+  prompt: 'select_account',
 }));
 
 // 👉 Callback de Google
-router.get('/google/callback',
+router.get(
+  '/google/callback',
   passport.authenticate('google', { failureRedirect: '/login/failed', session: false }),
   (req, res) => {
-    // Genera el JWT con los datos del usuario
-    const token = jwt.sign(
-      { id: req.user.id, name: req.user.name, email: req.user.email, photo: req.user.photo },
-      process.env.JWT_SECRET,
-      { expiresIn: '1d' }
-    );
-    // Redirige al frontend con el token en la URL (o responde con JSON si usas fetch)
-    res.redirect(`${CLIENT_URL}/?token=${token}`);
-    // Alternativa para SPA: res.json({ token });
+    const accessToken = generateAccessToken(req.user);
+    const refreshToken = generateRefreshToken(req.user);
+
+    // Guardar refresh token en cookie segura
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: !isDev,
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días
+    });
+
+    // Redirigir con access token en URL o enviarlo por JSON
+    res.redirect(`${CLIENT_URL}/?token=${accessToken}`);
   }
 );
+
+// 👉 Endpoint para refrescar access token
+router.get('/refresh', (req, res) => {
+  const refreshToken = req.cookies?.refreshToken;
+  if (!refreshToken) {
+    return res.status(401).json({ error: 'No hay refresh token' });
+  }
+
+  try {
+    const payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+    // Crear nuevo access token
+    const newAccessToken = jwt.sign(
+      { id: payload.id },
+      process.env.JWT_SECRET,
+      { expiresIn: '15m' }
+    );
+    return res.json({ accessToken: newAccessToken });
+  } catch (err) {
+    return res.status(403).json({ error: 'Refresh token inválido o expirado' });
+  }
+});
 
 // 👉 Ruta de logout
 router.get('/logout', (req, res, next) => {
   req.logout(err => {
     if (err) return next(err);
-    // Si la petición es AJAX (fetch), responde con JSON
+    res.clearCookie('refreshToken');
     if (req.xhr || req.headers.accept?.includes('application/json')) {
       return res.json({ success: true, message: 'Sesión cerrada correctamente.' });
     }
-    // Si es navegación normal, redirige
     res.redirect(CLIENT_URL);
   });
 });
 
-// 👉 Ruta opcional para verificar sesión activa
+// 👉 Verificar si la sesión de Passport sigue activa
 router.get('/login/success', (req, res) => {
-  console.log('--- /auth/login/success ---');
-  console.log('Cookies:', req.headers.cookie);
-  console.log('Session:', req.session);
-  console.log('User:', req.user);
-  console.log('isAuthenticated:', req.isAuthenticated && req.isAuthenticated());
-
   if (req.isAuthenticated && req.isAuthenticated()) {
-    res.status(200).json({
-      success: true,
-      message: 'Autenticado con éxito',
-      user: req.user,
-      session: req.session,
-      cookies: req.headers.cookie || null,
-    });
+    res.status(200).json({ success: true, user: req.user });
   } else {
-    res.status(401).json({
-      success: false,
-      message: 'No autenticado',
-      user: null,
-      session: req.session,
-      cookies: req.headers.cookie || null,
-    });
+    res.status(401).json({ success: false, message: 'No autenticado' });
   }
 });
 
-// 👉 Ruta opcional para manejar fallo de login
+// 👉 Falla de login
 router.get('/login/failed', (req, res) => {
-  res.status(401).json({
-    success: false,
-    message: 'Falló la autenticación con Google',
-  });
+  res.status(401).json({ success: false, message: 'Falló la autenticación con Google' });
 });
 
-// 👉 Nueva ruta: obtener información del usuario autenticado
-router.get('/user', (req, res) => {
-  if (req.isAuthenticated()) {
-    res.status(200).json({
-      user: req.user,
-    });
-  } else {
-    res.status(401).json({ message: 'No autenticado' });
-  }
-});
-
-// Ruta para verificar el JWT y devolver el usuario con rol real de la base de datos
+// 👉 Obtener usuario actual con JWT
 router.get('/me', async (req, res) => {
   try {
     let userId = req.user?.id;
 
-    // Si usas JWT:
+    // Si usas JWT en headers
     if (!userId && req.headers.authorization?.startsWith('Bearer ')) {
       const token = req.headers.authorization.replace('Bearer ', '');
       const payload = jwt.verify(token, process.env.JWT_SECRET);
@@ -106,7 +116,6 @@ router.get('/me', async (req, res) => {
 
     if (!userId) return res.json({ user: null });
 
-    // Trae el usuario con el campo rol real
     const { rows } = await req.app.get('db')?.query?.(
       'SELECT id, name, email, photo, rol FROM users WHERE id = $1',
       [userId]
@@ -119,6 +128,9 @@ router.get('/me', async (req, res) => {
 
     return res.json({ user: rows[0] });
   } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Token expirado', user: null });
+    }
     console.error('Error en /auth/me:', err);
     return res.status(500).json({ user: null });
   }
