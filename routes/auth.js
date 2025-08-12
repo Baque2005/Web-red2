@@ -42,23 +42,24 @@ router.get(
     const accessToken = generateAccessToken(req.user);
     const refreshToken = generateRefreshToken(req.user);
 
-    // Guardar refresh token en cookie segura
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: !isDev,
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días
-      path: '/',
+    // Enviar ambos tokens al frontend en JSON
+    res.json({
+      accessToken,
+      refreshToken,
+      user: {
+        id: req.user.id,
+        name: req.user.name,
+        email: req.user.email,
+        photo: req.user.photo,
+      },
     });
-
-    // Redirigir con access token en URL o enviarlo por JSON
-    res.redirect(`${CLIENT_URL}/?token=${accessToken}`);
   }
 );
 
 // 👉 Endpoint para refrescar access token
-router.get('/refresh', (req, res) => {
-  const refreshToken = req.cookies?.refreshToken;
+// Ahora espera refresh token en body JSON { refreshToken: '...' }
+router.post('/refresh', (req, res) => {
+  const { refreshToken } = req.body;
   if (!refreshToken) {
     return res.status(401).json({ error: 'No hay refresh token' });
   }
@@ -77,18 +78,10 @@ router.get('/refresh', (req, res) => {
   }
 });
 
-// 👉 Ruta de logout para borrar cookie refreshToken
-router.get('/logout', (req, res) => {
-  // Si usas Passport con sesión, puedes hacer req.logout() aquí
-  if (req.logout) req.logout();
-
-  res.clearCookie('refreshToken', {
-    httpOnly: true,
-    secure: !isDev,
-    sameSite: 'strict',
-    path: '/',
-  });
-
+// 👉 Ruta de logout (solo responde para frontend borrar tokens)
+router.post('/logout', (req, res) => {
+  // No hay cookie que limpiar en este esquema
+  // Solo confirmar logout para que el frontend borre tokens localmente
   res.json({ message: 'Sesión cerrada correctamente' });
 });
 
