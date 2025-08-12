@@ -28,6 +28,23 @@ const generateRefreshToken = (user) => {
   );
 };
 
+// Middleware para validar JWT en rutas protegidas
+const authenticateJWT = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.substring(7);
+    try {
+      const user = jwt.verify(token, process.env.JWT_SECRET);
+      req.user = user;
+      next();
+    } catch (err) {
+      return res.status(403).json({ error: 'Token inválido o expirado' });
+    }
+  } else {
+    return res.status(401).json({ error: 'No se proporcionó token' });
+  }
+};
+
 // 👉 Ruta para iniciar sesión con Google
 router.get('/google', passport.authenticate('google', {
   scope: ['profile', 'email'],
@@ -100,19 +117,10 @@ router.get('/login/failed', (req, res) => {
   res.status(401).json({ success: false, message: 'Falló la autenticación con Google' });
 });
 
-// 👉 Obtener usuario actual con JWT
-router.get('/me', async (req, res) => {
+// 👉 Obtener usuario actual con JWT (ruta protegida)
+router.get('/me', authenticateJWT, async (req, res) => {
   try {
-    let userId = req.user?.id;
-
-    // Si usas JWT en headers
-    if (!userId && req.headers.authorization?.startsWith('Bearer ')) {
-      const token = req.headers.authorization.replace('Bearer ', '');
-      const payload = jwt.verify(token, process.env.JWT_SECRET);
-      userId = payload.id;
-    }
-
-    if (!userId) return res.json({ user: null });
+    const userId = req.user.id;
 
     const { rows } = await req.app.get('db')?.query?.(
       'SELECT id, name, email, photo, rol FROM users WHERE id = $1',
@@ -126,9 +134,6 @@ router.get('/me', async (req, res) => {
 
     return res.json({ user: rows[0] });
   } catch (err) {
-    if (err.name === 'TokenExpiredError') {
-      return res.status(401).json({ error: 'Token expirado', user: null });
-    }
     console.error('Error en /auth/me:', err);
     return res.status(500).json({ user: null });
   }
