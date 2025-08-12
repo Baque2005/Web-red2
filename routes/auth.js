@@ -48,6 +48,7 @@ router.get(
       secure: !isDev,
       sameSite: 'strict',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días
+      path: '/',
     });
 
     // Redirigir con access token en URL o enviarlo por JSON
@@ -76,16 +77,19 @@ router.get('/refresh', (req, res) => {
   }
 });
 
-// 👉 Ruta de logout
-router.get('/logout', (req, res, next) => {
-  req.logout(err => {
-    if (err) return next(err);
-    res.clearCookie('refreshToken');
-    if (req.xhr || req.headers.accept?.includes('application/json')) {
-      return res.json({ success: true, message: 'Sesión cerrada correctamente.' });
-    }
-    res.redirect(CLIENT_URL);
+// 👉 Ruta de logout para borrar cookie refreshToken
+router.get('/logout', (req, res) => {
+  // Si usas Passport con sesión, puedes hacer req.logout() aquí
+  if (req.logout) req.logout();
+
+  res.clearCookie('refreshToken', {
+    httpOnly: true,
+    secure: !isDev,
+    sameSite: 'strict',
+    path: '/',
   });
+
+  res.json({ message: 'Sesión cerrada correctamente' });
 });
 
 // 👉 Verificar si la sesión de Passport sigue activa
