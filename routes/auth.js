@@ -42,16 +42,8 @@ router.get(
     const accessToken = generateAccessToken(req.user);
     const refreshToken = generateRefreshToken(req.user);
 
-    res.json({
-      accessToken,
-      refreshToken,
-      user: {
-        id: req.user.id,
-        name: req.user.name,
-        email: req.user.email,
-        photo: req.user.photo,
-      },
-    });
+    // Cambia esta línea para redirigir a tu frontend
+    res.redirect(`${CLIENT_URL}/?token=${accessToken}&refreshToken=${refreshToken}`);
   }
 );
 
