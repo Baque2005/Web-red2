@@ -28,23 +28,6 @@ const generateRefreshToken = (user) => {
   );
 };
 
-// Middleware para validar JWT en rutas protegidas
-const authenticateJWT = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.substring(7);
-    try {
-      const user = jwt.verify(token, process.env.JWT_SECRET);
-      req.user = user;
-      next();
-    } catch (err) {
-      return res.status(403).json({ error: 'Token inválido o expirado' });
-    }
-  } else {
-    return res.status(401).json({ error: 'No se proporcionó token' });
-  }
-};
-
 // 👉 Ruta para iniciar sesión con Google
 router.get('/google', passport.authenticate('google', {
   scope: ['profile', 'email'],
@@ -59,25 +42,23 @@ router.get(
     const accessToken = generateAccessToken(req.user);
     const refreshToken = generateRefreshToken(req.user);
 
-    // Enviar ambos tokens al frontend en JSON
-    res.json({
-      accessToken,
-      refreshToken,
-      user: {
-        id: req.user.id,
-        name: req.user.name,
-        email: req.user.email,
-        photo: req.user.photo,
-      },
+    // Guardar refresh token en cookie segura
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: !isDev,
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días
+      path: '/',
     });
+
+    // Redirigir con access token en URL o enviarlo por JSON
+    res.redirect(`${CLIENT_URL}/?token=${accessToken}`);
   }
 );
 
 // 👉 Endpoint para refrescar access token
-// Ahora espera refresh token en body JSON { refreshToken: '...' }
-router.post('/refresh', (req, res) => {
-  // Evitar error si req.body es undefined o no tiene refreshToken
-  const refreshToken = req.body?.refreshToken;
+router.get('/refresh', (req, res) => {
+  const refreshToken = req.cookies?.refreshToken;
   if (!refreshToken) {
     return res.status(401).json({ error: 'No hay refresh token' });
   }
@@ -96,10 +77,18 @@ router.post('/refresh', (req, res) => {
   }
 });
 
-// 👉 Ruta de logout (solo responde para frontend borrar tokens)
-router.post('/logout', (req, res) => {
-  // No hay cookie que limpiar en este esquema
-  // Solo confirmar logout para que el frontend borre tokens localmente
+// 👉 Ruta de logout para borrar cookie refreshToken
+router.get('/logout', (req, res) => {
+  // Si usas Passport con sesión, puedes hacer req.logout() aquí
+  if (req.logout) req.logout();
+
+  res.clearCookie('refreshToken', {
+    httpOnly: true,
+    secure: !isDev,
+    sameSite: 'strict',
+    path: '/',
+  });
+
   res.json({ message: 'Sesión cerrada correctamente' });
 });
 
@@ -117,10 +106,19 @@ router.get('/login/failed', (req, res) => {
   res.status(401).json({ success: false, message: 'Falló la autenticación con Google' });
 });
 
-// 👉 Obtener usuario actual con JWT (ruta protegida)
-router.get('/me', authenticateJWT, async (req, res) => {
+// 👉 Obtener usuario actual con JWT
+router.get('/me', async (req, res) => {
   try {
-    const userId = req.user.id;
+    let userId = req.user?.id;
+
+    // Si usas JWT en headers
+    if (!userId && req.headers.authorization?.startsWith('Bearer ')) {
+      const token = req.headers.authorization.replace('Bearer ', '');
+      const payload = jwt.verify(token, process.env.JWT_SECRET);
+      userId = payload.id;
+    }
+
+    if (!userId) return res.json({ user: null });
 
     const { rows } = await req.app.get('db')?.query?.(
       'SELECT id, name, email, photo, rol FROM users WHERE id = $1',
@@ -134,6 +132,9 @@ router.get('/me', authenticateJWT, async (req, res) => {
 
     return res.json({ user: rows[0] });
   } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Token expirado', user: null });
+    }
     console.error('Error en /auth/me:', err);
     return res.status(500).json({ user: null });
   }

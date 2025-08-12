@@ -37,7 +37,7 @@ if (!fs.existsSync(uploadDir)) {
 // Middlewares
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
-app.use(express.json()); // para que req.body no sea undefined
+
 app.use(session({
   store: new PgSession({
     pool: pool,
