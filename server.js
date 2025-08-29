@@ -139,6 +139,7 @@ app.post('/files/upload', (req, res) => {
   upload.fields([{ name: 'file', maxCount: 1 }, { name: 'image', maxCount: 1 }])(req, res, async (err) => {
     if (err) return res.status(400).json({ success: false, message: err.message });
 
+    // Cambia aquí: usa htmlFile en vez de req.file
     const htmlFile = req.files?.file?.[0];
     const imageFile = req.files?.image?.[0];
     if (!htmlFile) return res.status(400).json({ success: false, message: 'No se recibió archivo HTML' });
@@ -166,7 +167,7 @@ app.post('/files/upload', (req, res) => {
     }
 
     // --- Nueva lógica de ruta única ---
-    const ext = (path.extname(req.file.originalname) || '.html').toLowerCase();
+    const ext = (path.extname(htmlFile.originalname) || '.html').toLowerCase();
     if (!['.html', '.htm'].includes(ext)) {
       return res.status(400).json({ success: false, message: 'Solo se permiten archivos .html' });
     }
@@ -181,7 +182,7 @@ app.post('/files/upload', (req, res) => {
       const { error: supaError } = await supabase
         .storage
         .from('html-files')
-        .upload(targetPath, req.file.buffer, { upsert: false, contentType: 'text/html' });
+        .upload(targetPath, htmlFile.buffer, { upsert: false, contentType: 'text/html' });
       if (supaError && !String(supaError.message || '').toLowerCase().includes('already exists')) {
         return res.status(500).json({ success: false, message: 'Error al subir a Supabase: ' + supaError.message });
       }
@@ -194,9 +195,9 @@ app.post('/files/upload', (req, res) => {
 
       // 3. Publicar en GitHub Pages
       const publicUrl = await publishBuffer({
-        buffer: req.file.buffer,
+        buffer: htmlFile.buffer,
         targetPath,
-        message: `publish: ${req.file.originalname} -> ${targetPath}`
+        message: `publish: ${htmlFile.originalname} -> ${targetPath}`
       });
 
       // 4. Subir imagen a Supabase Storage
