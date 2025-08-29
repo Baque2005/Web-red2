@@ -744,12 +744,14 @@ app.listen(PORT, () => {
 
 // Endpoint para editar archivo (descripción, tipo, categoría, imagen)
 app.post('/files/edit/:id', (req, res) => {
-  // Usa multer para aceptar imagen opcional
   upload.fields([{ name: 'image', maxCount: 1 }])(req, res, async (err) => {
     if (err) return res.status(400).json({ success: false, message: err.message });
 
     const fileId = req.params.id;
-    const { descripcion = '', tipo = '', categoria = '' } = req.body;
+    // Solo toma los campos si existen y no son undefined
+    const descripcion = typeof req.body.descripcion === 'string' ? req.body.descripcion : undefined;
+    const tipo = typeof req.body.tipo === 'string' ? req.body.tipo : undefined;
+    const categoria = typeof req.body.categoria === 'string' ? req.body.categoria : undefined;
     const imageFile = req.files?.image?.[0];
 
     // Autenticación: solo el dueño o admin puede editar
@@ -795,7 +797,7 @@ app.post('/files/edit/:id', (req, res) => {
       previewImageUrl = imgData?.publicUrl || null;
     }
 
-    // Actualiza los campos
+    // Solo agrega campos que realmente se van a actualizar
     const updates = [];
     const params = [];
     let idx = 1;
@@ -803,14 +805,19 @@ app.post('/files/edit/:id', (req, res) => {
     if (tipo !== undefined) { updates.push(`tipo = $${idx++}`); params.push(tipo); }
     if (categoria !== undefined) { updates.push(`categoria = $${idx++}`); params.push(categoria); }
     if (previewImageUrl) { updates.push(`preview_image_url = $${idx++}`); params.push(previewImageUrl); }
+
     if (!updates.length) return res.json({ success: true }); // Nada que actualizar
 
     params.push(fileId);
-    await pool.query(
-      `UPDATE html_files SET ${updates.join(', ')} WHERE id = $${idx}`,
-      params
-    );
-
-    res.json({ success: true, previewImageUrl });
+    try {
+      await pool.query(
+        `UPDATE html_files SET ${updates.join(', ')} WHERE id = $${idx}`,
+        params
+      );
+      res.json({ success: true, previewImageUrl });
+    } catch (error) {
+      console.error('Error en /files/edit/:id:', error);
+      res.status(500).json({ success: false, message: 'Error al actualizar el archivo.' });
+    }
   });
 });
