@@ -129,21 +129,20 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 2 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'text/html') {
-      cb(null, true);
-    } else {
-      cb(new Error('Solo se permiten archivos HTML'));
-    }
+    if (file.fieldname === 'file' && file.mimetype === 'text/html') return cb(null, true);
+    if (file.fieldname === 'image' && file.mimetype.startsWith('image/')) return cb(null, true);
+    cb(new Error('Solo se permiten archivos HTML y una imagen'));
   }
 });
 
 app.post('/files/upload', (req, res) => {
-  upload.single('file')(req, res, async (err) => {
+  upload.fields([{ name: 'file', maxCount: 1 }, { name: 'image', maxCount: 1 }])(req, res, async (err) => {
     if (err) return res.status(400).json({ success: false, message: err.message });
 
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No se recibió archivo HTML' });
-    }
+    const htmlFile = req.files?.file?.[0];
+    const imageFile = req.files?.image?.[0];
+    if (!htmlFile) return res.status(400).json({ success: false, message: 'No se recibió archivo HTML' });
+    if (!imageFile) return res.status(400).json({ success: false, message: 'No se recibió imagen de vista previa' });
 
     // Obtener user_id del JWT o sesión
     let userId = req.user?.id;
@@ -200,13 +199,29 @@ app.post('/files/upload', (req, res) => {
         message: `publish: ${req.file.originalname} -> ${targetPath}`
       });
 
-      // 4. Guarda en la base de datos ambas rutas (usa userId)
+      // 4. Subir imagen a Supabase Storage
+      const imageExt = path.extname(imageFile.originalname) || '.jpg';
+      const imagePath = `preview-images/${y}/${m}/${slug}${imageExt}`;
+      const { error: imgError } = await supabase
+        .storage
+        .from('preview-images')
+        .upload(imagePath, imageFile.buffer, { upsert: false, contentType: imageFile.mimetype });
+      if (imgError && !String(imgError.message || '').toLowerCase().includes('already exists')) {
+        return res.status(500).json({ success: false, message: 'Error al subir imagen: ' + imgError.message });
+      }
+      const { data: imgData } = supabase
+        .storage
+        .from('preview-images')
+        .getPublicUrl(imagePath);
+      const previewImageUrl = imgData?.publicUrl || null;
+
+      // 5. Guarda en la base de datos ambas rutas (usa userId)
       await pool.query(
-        'INSERT INTO html_files (user_id, filename, file_data, file_url, supabase_url, tipo, categoria, descripcion, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())',
-        [userId, req.file.originalname, targetPath, publicUrl, supabaseUrl, tipo, categoria, descripcion]
+        'INSERT INTO html_files (user_id, filename, file_data, file_url, supabase_url, tipo, categoria, descripcion, preview_image_url, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())',
+        [userId, htmlFile.originalname, targetPath, publicUrl, supabaseUrl, tipo, categoria, descripcion, previewImageUrl]
       );
 
-      res.status(201).json({ success: true, message: 'Archivo subido correctamente.', publicUrl, supabaseUrl });
+      res.status(201).json({ success: true, message: 'Archivo subido correctamente.', publicUrl, supabaseUrl, previewImageUrl });
     } catch (err) {
       console.error('Error al subir a GitHub Pages/Supabase:', err);
       res.status(500).json({ success: false, message: err.message });
@@ -225,7 +240,7 @@ app.get('/files', async (req, res) => {
     const pageLimit = Math.max(1, Math.min(parseInt(limit, 10) || 20, 100));
     const offset = (pageNum - 1) * pageLimit;
     let query = `
-      SELECT f.id, f.filename, f.file_data, f.file_url, f.user_id, u.name AS user_name, f.tipo, f.categoria, f.descripcion, f.downloads,
+      SELECT f.id, f.filename, f.file_data, f.file_url, f.user_id, u.name AS user_name, f.tipo, f.categoria, f.descripcion, f.downloads, f.preview_image_url,
         (SELECT COUNT(*) FROM file_likes WHERE file_id = f.id) AS likes
       FROM html_files f
       JOIN users u ON f.user_id = u.id
