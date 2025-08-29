@@ -741,3 +741,76 @@ app.listen(PORT, () => {
 
 // Si necesitas usar ES modules, cambia todas las líneas require(...) por import ... from ... y usa la extensión .mjs
 // Pero para tu proyecto actual, solo asegúrate de que package.json NO tenga "type": "module"
+
+// Endpoint para editar archivo (descripción, tipo, categoría, imagen)
+app.post('/files/edit/:id', (req, res) => {
+  // Usa multer para aceptar imagen opcional
+  upload.fields([{ name: 'image', maxCount: 1 }])(req, res, async (err) => {
+    if (err) return res.status(400).json({ success: false, message: err.message });
+
+    const fileId = req.params.id;
+    const { descripcion = '', tipo = '', categoria = '' } = req.body;
+    const imageFile = req.files?.image?.[0];
+
+    // Autenticación: solo el dueño o admin puede editar
+    let userId = req.user?.id;
+    const auth = req.headers.authorization;
+    if (!userId && auth?.startsWith('Bearer ')) {
+      try {
+        const user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
+        if (user?.id) userId = user.id;
+      } catch {}
+    }
+    if (!userId) return res.status(401).json({ success: false, message: 'No autenticado' });
+
+    // Verifica dueño o admin
+    const { rows } = await pool.query('SELECT user_id, file_data FROM html_files WHERE id = $1', [fileId]);
+    if (!rows.length) return res.status(404).json({ success: false, message: 'Archivo no encontrado' });
+    const fileRow = rows[0];
+    let isAdmin = false;
+    const rolRes = await pool.query('SELECT rol FROM users WHERE id = $1', [userId]);
+    isAdmin = rolRes.rows[0]?.rol === 'admin';
+    if (String(fileRow.user_id) !== String(userId) && !isAdmin) {
+      return res.status(403).json({ success: false, message: 'No autorizado' });
+    }
+
+    let previewImageUrl = null;
+    if (imageFile) {
+      // Sube la nueva imagen a Supabase Storage (sobrescribe)
+      const [year, month, ...rest] = fileRow.file_data.split('/');
+      const slug = rest.join('/').replace(/\.[^.]+$/, ''); // sin extensión
+      const imageExt = path.extname(imageFile.originalname) || '.jpg';
+      const imagePath = `preview-images/${year}/${month}/${slug}${imageExt}`;
+      const { error: imgError } = await supabase
+        .storage
+        .from('preview-images')
+        .upload(imagePath, imageFile.buffer, { upsert: true, contentType: imageFile.mimetype });
+      if (imgError && !String(imgError.message || '').toLowerCase().includes('already exists')) {
+        return res.status(500).json({ success: false, message: 'Error al subir imagen: ' + imgError.message });
+      }
+      const { data: imgData } = supabase
+        .storage
+        .from('preview-images')
+        .getPublicUrl(imagePath);
+      previewImageUrl = imgData?.publicUrl || null;
+    }
+
+    // Actualiza los campos
+    const updates = [];
+    const params = [];
+    let idx = 1;
+    if (descripcion !== undefined) { updates.push(`descripcion = $${idx++}`); params.push(descripcion); }
+    if (tipo !== undefined) { updates.push(`tipo = $${idx++}`); params.push(tipo); }
+    if (categoria !== undefined) { updates.push(`categoria = $${idx++}`); params.push(categoria); }
+    if (previewImageUrl) { updates.push(`preview_image_url = $${idx++}`); params.push(previewImageUrl); }
+    if (!updates.length) return res.json({ success: true }); // Nada que actualizar
+
+    params.push(fileId);
+    await pool.query(
+      `UPDATE html_files SET ${updates.join(', ')} WHERE id = $${idx}`,
+      params
+    );
+
+    res.json({ success: true, previewImageUrl });
+  });
+});
