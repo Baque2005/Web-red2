@@ -667,13 +667,15 @@ app.get('/files/download/:year/:month/:filename', async (req, res) => {
   const { year, month, filename } = req.params;
   const filePath = `${year}/${month}/${filename}`;
   try {
-    // Busca el archivo en la base de datos por file_data para incrementar descargas
+    // Busca el archivo en la base de datos por file_data para incrementar descargas y obtener el nombre original
     const { rows } = await pool.query(
-      'SELECT id FROM html_files WHERE file_data = $1 LIMIT 1',
+      'SELECT id, filename FROM html_files WHERE file_data = $1 LIMIT 1',
       [filePath]
     );
     if (rows.length) {
       await pool.query('UPDATE html_files SET downloads = downloads + 1 WHERE id = $1', [rows[0].id]);
+    } else {
+      return res.status(404).send('Archivo no encontrado en la base de datos.');
     }
     // Descarga el archivo como buffer desde Supabase Storage
     const { data, error } = await supabase
@@ -685,8 +687,11 @@ app.get('/files/download/:year/:month/:filename', async (req, res) => {
       return res.status(404).send('Archivo no encontrado en Supabase.');
     }
 
+    // Usa el nombre original del archivo para la descarga
+    const originalFilename = rows[0].filename || filename;
+
     res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(originalFilename)}"`);
 
     if (typeof data.pipe === 'function') {
       data.pipe(res);
