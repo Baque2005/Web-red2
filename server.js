@@ -753,7 +753,7 @@ app.listen(PORT, () => {
 // Si necesitas usar ES modules, cambia todas las líneas require(...) por import ... from ... y usa la extensión .mjs
 // Pero para tu proyecto actual, solo asegúrate de que package.json NO tenga "type": "module"
 
-// Endpoint para editar archivo (descripción, tipo, categoría, imagen)
+// Endpoint para editar archivo (descripción, tipo, categoría, imagen, vip)
 app.post('/files/edit/:id', (req, res) => {
   upload.fields([{ name: 'image', maxCount: 1 }])(req, res, async (err) => {
     if (err) return res.status(400).json({ success: false, message: err.message });
@@ -763,6 +763,7 @@ app.post('/files/edit/:id', (req, res) => {
     const descripcion = typeof req.body.descripcion === 'string' ? req.body.descripcion : undefined;
     const tipo = typeof req.body.tipo === 'string' ? req.body.tipo : undefined;
     const categoria = typeof req.body.categoria === 'string' ? req.body.categoria : undefined;
+    const vip = typeof req.body.vip !== 'undefined' ? req.body.vip === 'true' : undefined;
     const imageFile = req.files?.image?.[0];
 
     // Autenticación: solo el dueño o admin puede editar
@@ -816,6 +817,7 @@ app.post('/files/edit/:id', (req, res) => {
     if (tipo !== undefined) { updates.push(`tipo = $${idx++}`); params.push(tipo); }
     if (categoria !== undefined) { updates.push(`categoria = $${idx++}`); params.push(categoria); }
     if (previewImageUrl) { updates.push(`preview_image_url = $${idx++}`); params.push(previewImageUrl); }
+    if (typeof vip !== 'undefined') { updates.push(`vip = $${idx++}`); params.push(vip); }
 
     if (!updates.length) return res.json({ success: true }); // Nada que actualizar
 
