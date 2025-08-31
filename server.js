@@ -236,7 +236,7 @@ app.post('/files/upload', (req, res) => {
 app.get('/files', async (req, res) => {
   try {
     // Añade userId al destructuring
-    const { search = '', user = '', tipo = '', categoria = '', page = 1, userId = '', limit = 20 } = req.query;
+    const { search = '', user = '', tipo = '', categoria = '', page = 1, userId = '', limit = 20, orderBy = '' } = req.query;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const pageLimit = Math.max(1, Math.min(parseInt(limit, 10) || 20, 100));
     const offset = (pageNum - 1) * pageLimit;
@@ -273,7 +273,12 @@ app.get('/files', async (req, res) => {
       params.push(Number(userId));
     }
 
-    query += ` ORDER BY f.created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`;
+    // Ordenamiento por descargas si se pide explícitamente
+    if (orderBy === 'downloads') {
+      query += ` ORDER BY f.downloads DESC, f.created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`;
+    } else {
+      query += ` ORDER BY f.created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`;
+    }
     params.push(pageLimit, offset);
 
     const result = await pool.query(query, params);
