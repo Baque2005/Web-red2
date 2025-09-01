@@ -162,6 +162,12 @@ app.post('/files/upload', (req, res) => {
     const tipo = req.body.tipo || '';
     const categoria = req.body.categoria || '';
     const descripcion = req.body.descripcion || '';
+    // ARREGLO: Lee el campo VIP correctamente como booleano
+    let vip = false;
+    if (typeof req.body.vip !== 'undefined') {
+      vip = req.body.vip === 'true' || req.body.vip === true || req.body.vip === '1' || req.body.vip === 1;
+    }
+
     if (!tipo || !categoria) {
       return res.status(400).json({ success: false, message: 'Debes seleccionar tipo y categoría.' });
     }
@@ -218,8 +224,8 @@ app.post('/files/upload', (req, res) => {
 
       // 5. Guarda en la base de datos ambas rutas (usa userId)
       await pool.query(
-        'INSERT INTO html_files (user_id, filename, file_data, file_url, supabase_url, tipo, categoria, descripcion, preview_image_url, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())',
-        [userId, htmlFile.originalname, targetPath, publicUrl, supabaseUrl, tipo, categoria, descripcion, previewImageUrl]
+        'INSERT INTO html_files (user_id, filename, file_data, file_url, supabase_url, tipo, categoria, descripcion, preview_image_url, vip, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())',
+        [userId, htmlFile.originalname, targetPath, publicUrl, supabaseUrl, tipo, categoria, descripcion, previewImageUrl, vip]
       );
 
       res.status(201).json({ success: true, message: 'Archivo subido correctamente.', publicUrl, supabaseUrl, previewImageUrl });
