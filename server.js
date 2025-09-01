@@ -162,10 +162,12 @@ app.post('/files/upload', (req, res) => {
     const tipo = req.body.tipo || '';
     const categoria = req.body.categoria || '';
     const descripcion = req.body.descripcion || '';
-    // ARREGLO: Lee el campo VIP correctamente como booleano
-    let vip = false;
-    if (typeof req.body.vip !== 'undefined') {
-      vip = req.body.vip === 'true' || req.body.vip === true || req.body.vip === '1' || req.body.vip === 1;
+    // Nuevo: Lee epago como string ("gratuito" o "vip")
+    let epago = 'gratuito';
+    if (typeof req.body.epago === 'string' && ['vip', 'gratuito'].includes(req.body.epago)) {
+      epago = req.body.epago;
+    } else if (req.body.vip === 'true' || req.body.vip === true || req.body.vip === '1' || req.body.vip === 1) {
+      epago = 'vip';
     }
 
     if (!tipo || !categoria) {
@@ -224,8 +226,8 @@ app.post('/files/upload', (req, res) => {
 
       // 5. Guarda en la base de datos ambas rutas (usa userId)
       await pool.query(
-        'INSERT INTO html_files (user_id, filename, file_data, file_url, supabase_url, tipo, categoria, descripcion, preview_image_url, vip, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())',
-        [userId, htmlFile.originalname, targetPath, publicUrl, supabaseUrl, tipo, categoria, descripcion, previewImageUrl, vip]
+        'INSERT INTO html_files (user_id, filename, file_data, file_url, supabase_url, tipo, categoria, descripcion, preview_image_url, epago, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())',
+        [userId, htmlFile.originalname, targetPath, publicUrl, supabaseUrl, tipo, categoria, descripcion, previewImageUrl, epago]
       );
 
       res.status(201).json({ success: true, message: 'Archivo subido correctamente.', publicUrl, supabaseUrl, previewImageUrl });
@@ -247,7 +249,7 @@ app.get('/files', async (req, res) => {
     const pageLimit = Math.max(1, Math.min(parseInt(limit, 10) || 20, 100));
     const offset = (pageNum - 1) * pageLimit;
     let query = `
-      SELECT f.id, f.filename, f.file_data, f.file_url, f.user_id, u.name AS user_name, f.tipo, f.categoria, f.descripcion, f.downloads, f.preview_image_url,
+      SELECT f.id, f.filename, f.file_data, f.file_url, f.user_id, u.name AS user_name, f.tipo, f.categoria, f.descripcion, f.downloads, f.preview_image_url, f.epago,
         (SELECT COUNT(*) FROM file_likes WHERE file_id = f.id) AS likes
       FROM html_files f
       JOIN users u ON f.user_id = u.id
@@ -769,7 +771,9 @@ app.post('/files/edit/:id', (req, res) => {
     const descripcion = typeof req.body.descripcion === 'string' ? req.body.descripcion : undefined;
     const tipo = typeof req.body.tipo === 'string' ? req.body.tipo : undefined;
     const categoria = typeof req.body.categoria === 'string' ? req.body.categoria : undefined;
-    const vip = typeof req.body.vip !== 'undefined' ? req.body.vip === 'true' : undefined;
+    const epago = typeof req.body.epago === 'string' && ['vip', 'gratuito'].includes(req.body.epago)
+      ? req.body.epago
+      : undefined;
     const imageFile = req.files?.image?.[0];
 
     // Autenticación: solo el dueño o admin puede editar
@@ -823,7 +827,7 @@ app.post('/files/edit/:id', (req, res) => {
     if (tipo !== undefined) { updates.push(`tipo = $${idx++}`); params.push(tipo); }
     if (categoria !== undefined) { updates.push(`categoria = $${idx++}`); params.push(categoria); }
     if (previewImageUrl) { updates.push(`preview_image_url = $${idx++}`); params.push(previewImageUrl); }
-    if (typeof vip !== 'undefined') { updates.push(`vip = $${idx++}`); params.push(vip); }
+    if (epago !== undefined) { updates.push(`epago = $${idx++}`); params.push(epago); }
 
     if (!updates.length) return res.json({ success: true }); // Nada que actualizar
 
