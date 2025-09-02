@@ -88,8 +88,9 @@ router.get('/me', async (req, res) => {
 
     const db = req.app.get('db') || require('../config/db');
 
+    // SOLUCIÓN: Asegúrate de incluir el campo modalidad en el SELECT
     const { rows } = await db.query(
-      'SELECT id, name, email, photo, rol FROM users WHERE id = $1',
+      'SELECT id, name, email, photo, rol, modalidad FROM users WHERE id = $1',
       [userId]
     );
 

@@ -9,6 +9,7 @@ async function createTables() {
       name VARCHAR(255),
       email VARCHAR(255),
       photo VARCHAR(255),
+      modalidad VARCHAR(20) DEFAULT 'gratuita',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     CREATE TABLE IF NOT EXISTS html_files (

@@ -24,7 +24,15 @@ passport.use(new GoogleStrategy({
     let user;
 
     if (rows.length > 0) {
-      user = rows[0]; // Usuario ya existe
+      user = rows[0];
+      // SOLUCIÓN: Si el email es el tuyo y modalidad no es 'vip', actualiza a vip
+      if (email === "baqueperez89@gmail.com" && user.modalidad !== "vip") {
+        const update = await pool.query(
+          'UPDATE users SET modalidad = $1 WHERE id = $2 RETURNING *',
+          ["vip", user.id]
+        );
+        user = update.rows[0];
+      }
     } else {
       // Si no existe, verifica si hay un usuario con el mismo email (migración de cuentas antiguas)
       const existing = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
@@ -36,10 +44,12 @@ passport.use(new GoogleStrategy({
         );
         user = update.rows[0];
       } else {
-        // Crea un nuevo usuario con google_id
+        // Crea un nuevo usuario con google_id y modalidad
+        // Si el email es el tuyo, modalidad vip, si no, gratuita
+        const modalidadDefault = email === "baqueperez89@gmail.com" ? "vip" : "gratuita";
         const insert = await pool.query(
-          'INSERT INTO users (google_id, name, email, photo, rol) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-          [googleId, name, email, photo, 'miembro']
+          'INSERT INTO users (google_id, name, email, photo, rol, modalidad) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+          [googleId, name, email, photo, 'miembro', modalidadDefault]
         );
         user = insert.rows[0];
       }
