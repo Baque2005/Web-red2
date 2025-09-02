@@ -858,3 +858,53 @@ app.post('/files/edit/:id', (req, res) => {
 // Si quieres automatizar los pagos (payouts) a la cuenta PayPal del usuario, necesitas integrar PayPal Payouts o Stripe Connect en el backend y pedir al usuario que vincule su cuenta PayPal en su perfil.
 
 // El flujo actual es funcional para la gestión de archivos, descargas y cálculo de ganancias, pero los pagos automáticos requieren integración adicional con la API de pagos.
+
+// Endpoint para saber si el usuario ya compró un archivo VIP
+app.get('/files/:id/purchased', async (req, res) => {
+  let userId = req.user?.id;
+  const auth = req.headers.authorization;
+  if (!userId && auth?.startsWith('Bearer ')) {
+    try {
+      const user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
+      if (user?.id) userId = user.id;
+    } catch {}
+  }
+  if (!userId) return res.json({ purchased: false });
+
+  const fileId = req.params.id;
+  try {
+    // Busca en la tabla de compras si el usuario ya compró este archivo
+    // Si no tienes la tabla, crea: CREATE TABLE file_purchases (id SERIAL PRIMARY KEY, file_id INT, user_id INT, created_at TIMESTAMP DEFAULT NOW(), UNIQUE(file_id, user_id));
+    const { rows } = await pool.query(
+      'SELECT 1 FROM file_purchases WHERE file_id = $1 AND user_id = $2 LIMIT 1',
+      [fileId, userId]
+    );
+    res.json({ purchased: rows.length > 0 });
+  } catch {
+    res.json({ purchased: false });
+  }
+});
+
+// Endpoint para registrar la compra de un archivo VIP
+app.post('/files/:id/purchase', async (req, res) => {
+  let userId = req.user?.id;
+  const auth = req.headers.authorization;
+  if (!userId && auth?.startsWith('Bearer ')) {
+    try {
+      const user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
+      if (user?.id) userId = user.id;
+    } catch {}
+  }
+  if (!userId) return res.status(401).json({ success: false });
+
+  const fileId = req.params.id;
+  try {
+    await pool.query(
+      'INSERT INTO file_purchases (file_id, user_id) VALUES ($1, $2) ON CONFLICT (file_id, user_id) DO NOTHING',
+      [fileId, userId]
+    );
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ success: false });
+  }
+});
