@@ -844,3 +844,17 @@ app.post('/files/edit/:id', (req, res) => {
     }
   });
 });
+
+// Tu backend ya implementa el flujo principal para archivos VIP:
+// - Pago de subida VIP (el frontend lo gestiona, el backend solo recibe el archivo tras el pago)
+// - Subida de archivos VIP y gratuitos con distinción por campo epago
+// - Registro de descargas y likes
+// - Cálculo de ganancias por descargas (descargas * 0.9 para el autor, * 0.1 para el admin)
+// - El backend puede consultar archivos por usuario y tipo (VIP/gratuito)
+// - El backend permite eliminar y editar archivos, y gestiona imágenes de vista previa
+// - El backend permite listar usuarios y archivos, y eliminar usuarios (solo admin)
+// - El backend no realiza pagos automáticos a PayPal, pero puedes calcular las ganancias y mostrar el saldo
+
+// Si quieres automatizar los pagos (payouts) a la cuenta PayPal del usuario, necesitas integrar PayPal Payouts o Stripe Connect en el backend y pedir al usuario que vincule su cuenta PayPal en su perfil.
+
+// El flujo actual es funcional para la gestión de archivos, descargas y cálculo de ganancias, pero los pagos automáticos requieren integración adicional con la API de pagos.
