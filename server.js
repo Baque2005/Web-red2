@@ -914,19 +914,20 @@ app.post('/files/:id/confirmPurchase', async (req, res) => {
   let userId = req.user?.id;
   const auth = req.headers.authorization;
 
+  // Verificar usuario autenticado desde el token
   if (!userId && auth?.startsWith('Bearer ')) {
     try {
       const user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
       if (user?.id) userId = user.id;
     } catch (err) {
-      console.error(err);
+      console.error('Error al verificar token:', err);
     }
   }
 
-  if (!userId) return res.status(401).json({ success: false });
+  if (!userId) return res.status(401).json({ success: false, message: 'Usuario no autenticado' });
 
   const fileId = req.params.id;
-  const { orderID, payerID, payerEmail, amount } = req.body; // Recibimos email y amount
+  const { orderID, payerID, payerEmail, amount } = req.body;
 
   try {
     // Evita duplicados por orderID
@@ -938,16 +939,57 @@ app.post('/files/:id/confirmPurchase', async (req, res) => {
     if (exists.rows.length)
       return res.status(200).json({ success: true, message: 'Compra ya registrada' });
 
-    // Registra la compra en la base de datos
+    // Registrar la compra en la base de datos
     await pool.query(
-      'INSERT INTO file_purchases (file_id, user_id, paypal_order_id, payer_email, amount) VALUES ($1, $2, $3, $4, $5)',
-      [fileId, userId, orderID, payerEmail || null, amount || null]
+      `INSERT INTO file_purchases 
+       (file_id, user_id, paypal_order_id, payer_email, amount, created_at) 
+       VALUES ($1, $2, $3, $4, $5, NOW())`,
+      [fileId, userId, orderID, payerEmail || null, amount || 0]
     );
 
-    res.json({ success: true });
+    res.json({ success: true, message: 'Compra registrada con éxito' });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false });
+    console.error('Error al confirmar compra:', err);
+    res.status(500).json({ success: false, message: 'Error al registrar la compra' });
+  }
+});
+
+
+// Endpoint para consultar ganancias desde file_purchases
+app.get('/earnings', async (req, res) => {
+  let user = req.user;
+  const auth = req.headers.authorization;
+
+  // Verificar usuario desde token
+  if (!user && auth?.startsWith('Bearer ')) {
+    try {
+      user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
+    } catch (err) {
+      console.error('Error al verificar token:', err);
+    }
+  }
+  if (!user) return res.status(401).json({ earnings: 0 });
+
+  try {
+    let result;
+
+    if (user.rol === 'admin') {
+      // Admin: todas las compras
+      result = await pool.query(
+        'SELECT SUM(amount) AS total FROM file_purchases'
+      );
+    } else {
+      // Usuario: solo sus compras
+      result = await pool.query(
+        'SELECT SUM(amount) AS total FROM file_purchases WHERE user_id = $1',
+        [user.id]
+      );
+    }
+
+    res.json({ earnings: Number(result.rows[0].total) || 0 });
+  } catch (err) {
+    console.error('Error al obtener ganancias:', err);
+    res.status(500).json({ earnings: 0 });
   }
 });
 
