@@ -909,3 +909,46 @@ app.post('/files/:id/purchase', async (req, res) => {
   }
 });
 
+// Endpoint para confirmar la compra desde el frontend (llamado tras actions.order.capture)
+app.post('/files/:id/confirmPurchase', async (req, res) => {
+  let userId = req.user?.id;
+  const auth = req.headers.authorization;
+
+  if (!userId && auth?.startsWith('Bearer ')) {
+    try {
+      const user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
+      if (user?.id) userId = user.id;
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  if (!userId) return res.status(401).json({ success: false });
+
+  const fileId = req.params.id;
+  const { orderID, payerID, payerEmail, amount } = req.body; // Recibimos email y amount
+
+  try {
+    // Evita duplicados por orderID
+    const exists = await pool.query(
+      'SELECT 1 FROM file_purchases WHERE paypal_order_id = $1 LIMIT 1',
+      [orderID]
+    );
+
+    if (exists.rows.length)
+      return res.status(200).json({ success: true, message: 'Compra ya registrada' });
+
+    // Registra la compra en la base de datos
+    await pool.query(
+      'INSERT INTO file_purchases (file_id, user_id, paypal_order_id, payer_email, amount) VALUES ($1, $2, $3, $4, $5)',
+      [fileId, userId, orderID, payerEmail || null, amount || null]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false });
+  }
+});
+
+
