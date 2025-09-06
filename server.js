@@ -960,36 +960,37 @@ app.get('/earnings', async (req, res) => {
   let user = req.user;
   const auth = req.headers.authorization;
 
-  // Verificar usuario desde token
+  // Verificar usuario desde token si no hay req.user
   if (!user && auth?.startsWith('Bearer ')) {
     try {
       user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
     } catch (err) {
       console.error('Error al verificar token:', err);
+      return res.status(401).json({ earnings: 0 });
     }
   }
+
   if (!user) return res.status(401).json({ earnings: 0 });
 
   try {
-    let result;
+    // Construir la consulta según el rol
+    const queryText =
+      user.rol === 'admin'
+        ? 'SELECT COALESCE(SUM(amount),0) AS total FROM file_purchases'
+        : 'SELECT COALESCE(SUM(amount),0) AS total FROM file_purchases WHERE user_id = $1';
 
-    if (user.rol === 'admin') {
-      // Admin: todas las compras
-      result = await pool.query(
-        'SELECT SUM(amount) AS total FROM file_purchases'
-      );
-    } else {
-      // Usuario: solo sus compras
-      result = await pool.query(
-        'SELECT SUM(amount) AS total FROM file_purchases WHERE user_id = $1',
-        [user.id]
-      );
-    }
+    const values = user.rol === 'admin' ? [] : [user.id];
 
-    res.json({ earnings: Number(result.rows[0].total) || 0 });
+    const result = await pool.query(queryText, values);
+
+    const total = Number(result.rows[0].total) || 0;
+
+    console.log('Usuario:', user);
+    console.log('Ganancias calculadas:', total);
+
+    res.json({ earnings: total });
   } catch (err) {
     console.error('Error al obtener ganancias:', err);
     res.status(500).json({ earnings: 0 });
   }
 });
-
