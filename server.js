@@ -954,7 +954,6 @@ app.post('/files/:id/confirmPurchase', async (req, res) => {
   }
 });
 
-
 // Endpoint para consultar ganancias desde file_purchases
 app.get('/earnings', async (req, res) => {
   let user = req.user;
@@ -993,4 +992,59 @@ app.get('/earnings', async (req, res) => {
     console.error('Error al obtener ganancias:', err);
     res.status(500).json({ earnings: 0 });
   }
+});
+
+// Endpoint para activar suscripción VIP mensual
+app.post('/users/subscribe-vip', async (req, res) => {
+  let userId = req.user?.id;
+  const auth = req.headers.authorization;
+  if (!userId && auth?.startsWith('Bearer ')) {
+    try {
+      const user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
+      if (user?.id) userId = user.id;
+    } catch {}
+  }
+  if (!userId) return res.status(401).json({ success: false, message: 'No autenticado' });
+
+  // Calcula fecha de expiración: ahora + 1 mes
+  const now = dayjs();
+  const expiresAt = now.add(1, 'month').toDate();
+
+  try {
+    // Actualiza modalidad y fecha de expiración en la tabla users
+    await pool.query(
+      'UPDATE users SET modalidad = $1, vip_expiration = $2 WHERE id = $3',
+      ['vip', expiresAt, userId]
+    );
+    res.json({ success: true, expiresAt });
+  } catch (err) {
+    console.error('Error al activar suscripción VIP:', err);
+    res.status(500).json({ success: false, message: 'Error al activar VIP' });
+  }
+});
+
+// Middleware para verificar expiración VIP y revertir a gratuito si venció
+app.use(async (req, res, next) => {
+  let userId = req.user?.id;
+  const auth = req.headers.authorization;
+  if (!userId && auth?.startsWith('Bearer ')) {
+    try {
+      const user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
+      if (user?.id) userId = user.id;
+    } catch {}
+  }
+  if (userId) {
+    try {
+      const { rows } = await pool.query('SELECT modalidad, vip_expiration FROM users WHERE id = $1', [userId]);
+      if (rows.length && rows[0].modalidad === 'vip' && rows[0].vip_expiration) {
+        const now = dayjs();
+        const expires = dayjs(rows[0].vip_expiration);
+        if (now.isAfter(expires)) {
+          // Expiró, vuelve a gratuito
+          await pool.query('UPDATE users SET modalidad = $1, vip_expiration = NULL WHERE id = $2', ['gratuito', userId]);
+        }
+      }
+    } catch {}
+  }
+  next();
 });
