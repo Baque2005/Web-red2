@@ -639,9 +639,10 @@ app.delete('/files/delete/:id', async (req, res) => {
 const cookieParser = require('cookie-parser');
 app.use(cookieParser());
 
-// Endpoint para renovar el access token usando el refresh token de la cookie
+// Endpoint para renovar el access token usando el refresh token del header/body (NO cookies)
 app.post('/auth/refresh', (req, res) => {
-  const token = req.cookies.refreshToken;
+  // Obtén el refreshToken del header o del body
+  const token = req.headers['x-refresh-token'] || req.body.refreshToken;
   if (!token) return res.sendStatus(401);
 
   jwt.verify(token, process.env.REFRESH_SECRET, (err, user) => {
@@ -670,10 +671,11 @@ app.get('/', (req, res) => {
 // Catch-all seguro para SPA (NO captura '/', excluye prefijos de API/estáticos)
 app.get(/^\/(?!api|auth|files|uploads)(?:.+)$/, (req, res) => {
   res.sendFile(path.join(buildPath, 'index.html'), err => {
-    if (err) {
+    if (err && err.code !== 'ECONNABORTED') {
       console.error('Error enviando index.html:', err);
       res.status(500).send('Error interno del servidor');
     }
+    // Si es ECONNABORTED, no hagas nada (el cliente abortó la petición)
   });
 });
 app.get('/files/download/:year/:month/:filename', async (req, res) => {
