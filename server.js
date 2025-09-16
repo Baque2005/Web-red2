@@ -928,7 +928,12 @@ app.post('/files/:id/confirmPurchase', async (req, res) => {
 
   if (!userId) return res.status(401).json({ success: false, message: 'Usuario no autenticado' });
 
+  // Validación: No permitir fileId "null" o no numérico
   const fileId = req.params.id;
+  if (!fileId || fileId === 'null' || isNaN(Number(fileId))) {
+    return res.status(400).json({ success: false, message: 'ID de archivo inválido' });
+  }
+
   const { orderID, payerID, payerEmail, amount } = req.body;
 
   try {
