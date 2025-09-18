@@ -1101,3 +1101,81 @@ app.use(async (req, res, next) => {
   }
   next();
 });
+
+// Lista de palabras prohibidas y regex para enlaces
+const BAD_WORDS = [
+  'puta','mierda','cabron','pendejo','maricon','joder','coño','culero','puto','gilipollas','zorra','imbecil','idiota','cagada','perra','tonto','estupido','malparido',
+  'fuck','shit','bitch','asshole','dick','cunt','bastard','fag','motherfucker','slut','whore','jerk','idiot','stupid','retard','damn','crap','suck','pussy',
+  'porn','porno','xxx','sex','sexo','nude','nudes','naked','desnudo','desnuda'
+];
+const URL_REGEX = /(https?:\/\/|www\.|\.com\b|\.net\b|\.org\b|\.io\b|\.xyz\b|\.gg\b|\.me\b|\.to\b|\.ly\b|\.co\b)/i;
+
+app.get('/chat/messages', async (req, res) => {
+  try {
+    const since = dayjs().subtract(12, 'hour').toDate();
+    const result = await pool.query(
+      `SELECT m.id, m.user_id, u.name, u.photo, u.modalidad, m.text, m.created_at
+       FROM global_chat_messages m
+       JOIN users u ON m.user_id = u.id
+       WHERE m.created_at > $1
+       ORDER BY m.created_at ASC`,
+      [since]
+    );
+    res.json({ messages: result.rows });
+  } catch (err) {
+    res.status(500).json({ messages: [] });
+  }
+});
+
+app.post('/chat/messages', async (req, res) => {
+  let userId = req.user?.id;
+  const auth = req.headers.authorization;
+  if (!userId && auth?.startsWith('Bearer ')) {
+    try {
+      const user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
+      if (user?.id) userId = user.id;
+    } catch {}
+  }
+  if (!userId) return res.status(401).json({ success: false, message: 'No autenticado' });
+
+  let { text } = req.body;
+  if (!text || typeof text !== 'string' || text.trim().length === 0) {
+    return res.status(400).json({ success: false, message: 'Mensaje vacío' });
+  }
+
+  // Censura palabras prohibidas y enlaces
+  let censored = text;
+  let foundBad = false;
+  BAD_WORDS.forEach(word => {
+    const regex = new RegExp(`\\b${word}\\b`, 'gi');
+    if (regex.test(censored)) foundBad = true;
+    censored = censored.replace(regex, '***');
+  });
+  if (URL_REGEX.test(censored)) {
+    foundBad = true;
+    censored = censored.replace(URL_REGEX, '[enlace bloqueado]');
+  }
+  if (foundBad) {
+    return res.status(400).json({ success: false, message: 'Mensaje contiene contenido prohibido.' });
+  }
+
+  try {
+    await pool.query(
+      'INSERT INTO global_chat_messages (user_id, text, created_at) VALUES ($1, $2, NOW())',
+      [userId, censored.trim()]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Error al enviar mensaje' });
+  }
+});
+
+// Cron para borrar mensajes de chat con más de 12 horas (ejecuta cada hora)
+setInterval(async () => {
+  try {
+    const cutoff = dayjs().subtract(12, 'hour').toDate();
+    await pool.query('DELETE FROM global_chat_messages WHERE created_at < $1', [cutoff]);
+  } catch (err) {
+    console.error('Error limpiando mensajes de chat:', err);
+  }
+}, 60 * 60 * 1000); // cada hora
