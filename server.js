@@ -127,23 +127,28 @@ app.get('/users/online', async (req, res) => {
 // Subida de archivos HTML a GitHub Pages (sin restricción de login)
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 2 * 1024 * 1024 },
+  limits: { fileSize: 20 * 1024 * 1024 }, // aumenta límite para video
   fileFilter: (req, file, cb) => {
     if (file.fieldname === 'file' && file.mimetype === 'text/html') return cb(null, true);
     if (file.fieldname === 'image' && file.mimetype.startsWith('image/')) return cb(null, true);
-    cb(new Error('Solo se permiten archivos HTML y una imagen'));
+    if (file.fieldname === 'video' && file.mimetype.startsWith('video/')) return cb(null, true);
+    cb(new Error('Solo se permiten archivos HTML, imagen o video'));
   }
 });
 
 app.post('/files/upload', (req, res) => {
-  upload.fields([{ name: 'file', maxCount: 1 }, { name: 'image', maxCount: 1 }])(req, res, async (err) => {
+  upload.fields([
+    { name: 'file', maxCount: 1 },
+    { name: 'image', maxCount: 1 },
+    { name: 'video', maxCount: 1 }
+  ])(req, res, async (err) => {
     if (err) return res.status(400).json({ success: false, message: err.message });
 
-    // Cambia aquí: usa htmlFile en vez de req.file
     const htmlFile = req.files?.file?.[0];
     const imageFile = req.files?.image?.[0];
+    const videoFile = req.files?.video?.[0];
     if (!htmlFile) return res.status(400).json({ success: false, message: 'No se recibió archivo HTML' });
-    if (!imageFile) return res.status(400).json({ success: false, message: 'No se recibió imagen de vista previa' });
+    if (!imageFile && !videoFile) return res.status(400).json({ success: false, message: 'No se recibió imagen o video de vista previa' });
 
     // Obtener user_id del JWT o sesión
     let userId = req.user?.id;
@@ -208,29 +213,48 @@ app.post('/files/upload', (req, res) => {
         message: `publish: ${htmlFile.originalname} -> ${targetPath}`
       });
 
-      // 4. Subir imagen a Supabase Storage
-      const imageExt = path.extname(imageFile.originalname) || '.jpg';
-      const imagePath = `preview-images/${y}/${m}/${slug}${imageExt}`;
-      const { error: imgError } = await supabase
-        .storage
-        .from('preview-images')
-        .upload(imagePath, imageFile.buffer, { upsert: false, contentType: imageFile.mimetype });
-      if (imgError && !String(imgError.message || '').toLowerCase().includes('already exists')) {
-        return res.status(500).json({ success: false, message: 'Error al subir imagen: ' + imgError.message });
+      // 4. Subir imagen/video a Supabase Storage
+      let previewImageUrl = null;
+      let previewVideoUrl = null;
+      if (epago === 'vip' && videoFile) {
+        const videoExt = path.extname(videoFile.originalname) || '.mp4';
+        const videoPath = `preview-videos/${y}/${m}/${slug}${videoExt}`;
+        const { error: vidError } = await supabase
+          .storage
+          .from('preview-videos')
+          .upload(videoPath, videoFile.buffer, { upsert: false, contentType: videoFile.mimetype });
+        if (vidError && !String(vidError.message || '').toLowerCase().includes('already exists')) {
+          return res.status(500).json({ success: false, message: 'Error al subir video: ' + vidError.message });
+        }
+        const { data: vidData } = supabase
+          .storage
+          .from('preview-videos')
+          .getPublicUrl(videoPath);
+        previewVideoUrl = vidData?.publicUrl || null;
+      } else if (imageFile) {
+        const imageExt = path.extname(imageFile.originalname) || '.jpg';
+        const imagePath = `preview-images/${y}/${m}/${slug}${imageExt}`;
+        const { error: imgError } = await supabase
+          .storage
+          .from('preview-images')
+          .upload(imagePath, imageFile.buffer, { upsert: false, contentType: imageFile.mimetype });
+        if (imgError && !String(imgError.message || '').toLowerCase().includes('already exists')) {
+          return res.status(500).json({ success: false, message: 'Error al subir imagen: ' + imgError.message });
+        }
+        const { data: imgData } = supabase
+          .storage
+          .from('preview-images')
+          .getPublicUrl(imagePath);
+        previewImageUrl = imgData?.publicUrl || null;
       }
-      const { data: imgData } = supabase
-        .storage
-        .from('preview-images')
-        .getPublicUrl(imagePath);
-      const previewImageUrl = imgData?.publicUrl || null;
 
       // 5. Guarda en la base de datos ambas rutas (usa userId)
       await pool.query(
-        'INSERT INTO html_files (user_id, filename, file_data, file_url, supabase_url, tipo, categoria, descripcion, preview_image_url, epago, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())',
-        [userId, htmlFile.originalname, targetPath, publicUrl, supabaseUrl, tipo, categoria, descripcion, previewImageUrl, epago]
+        'INSERT INTO html_files (user_id, filename, file_data, file_url, supabase_url, tipo, categoria, descripcion, preview_image_url, preview_video_url, epago, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())',
+        [userId, htmlFile.originalname, targetPath, publicUrl, supabaseUrl, tipo, categoria, descripcion, previewImageUrl, previewVideoUrl, epago]
       );
 
-      res.status(201).json({ success: true, message: 'Archivo subido correctamente.', publicUrl, supabaseUrl, previewImageUrl });
+      res.status(201).json({ success: true, message: 'Archivo subido correctamente.', publicUrl, supabaseUrl, previewImageUrl, previewVideoUrl });
     } catch (err) {
       console.error('Error al subir a GitHub Pages/Supabase:', err);
       res.status(500).json({ success: false, message: err.message });
@@ -763,9 +787,9 @@ app.listen(PORT, () => {
 // Si necesitas usar ES modules, cambia todas las líneas require(...) por import ... from ... y usa la extensión .mjs
 // Pero para tu proyecto actual, solo asegúrate de que package.json NO tenga "type": "module"
 
-// Endpoint para editar archivo (descripción, tipo, categoría, imagen, vip)
+// Endpoint para editar archivo (descripción, tipo, categoría, imagen/video, vip)
 app.post('/files/edit/:id', (req, res) => {
-  upload.fields([{ name: 'image', maxCount: 1 }])(req, res, async (err) => {
+  upload.fields([{ name: 'image', maxCount: 1 }, { name: 'video', maxCount: 1 }])(req, res, async (err) => {
     if (err) return res.status(400).json({ success: false, message: err.message });
 
     const fileId = req.params.id;
@@ -777,6 +801,7 @@ app.post('/files/edit/:id', (req, res) => {
       ? req.body.epago
       : undefined;
     const imageFile = req.files?.image?.[0];
+    const videoFile = req.files?.video?.[0];
 
     // Autenticación: solo el dueño o admin puede editar
     let userId = req.user?.id;
@@ -801,6 +826,26 @@ app.post('/files/edit/:id', (req, res) => {
     }
 
     let previewImageUrl = null;
+    let previewVideoUrl = null;
+    if (videoFile) {
+      // Sube el nuevo video a Supabase Storage (sobrescribe)
+      const [year, month, ...rest] = fileRow.file_data.split('/');
+      const slug = rest.join('/').replace(/\.[^.]+$/, '');
+      const videoExt = path.extname(videoFile.originalname) || '.mp4';
+      const videoPath = `preview-videos/${year}/${month}/${slug}${videoExt}`;
+      const { error: vidError } = await supabase
+        .storage
+        .from('preview-videos')
+        .upload(videoPath, videoFile.buffer, { upsert: true, contentType: videoFile.mimetype });
+      if (vidError && !String(vidError.message || '').toLowerCase().includes('already exists')) {
+        return res.status(500).json({ success: false, message: 'Error al subir video: ' + vidError.message });
+      }
+      const { data: vidData } = supabase
+        .storage
+        .from('preview-videos')
+        .getPublicUrl(videoPath);
+      previewVideoUrl = vidData?.publicUrl || null;
+    }
     if (imageFile) {
       // Sube la nueva imagen a Supabase Storage (sobrescribe)
       const [year, month, ...rest] = fileRow.file_data.split('/');
@@ -829,6 +874,7 @@ app.post('/files/edit/:id', (req, res) => {
     if (tipo !== undefined) { updates.push(`tipo = $${idx++}`); params.push(tipo); }
     if (categoria !== undefined) { updates.push(`categoria = $${idx++}`); params.push(categoria); }
     if (previewImageUrl) { updates.push(`preview_image_url = $${idx++}`); params.push(previewImageUrl); }
+    if (previewVideoUrl) { updates.push(`preview_video_url = $${idx++}`); params.push(previewVideoUrl); }
     if (epago !== undefined) { updates.push(`epago = $${idx++}`); params.push(epago); }
 
     if (!updates.length) return res.json({ success: true }); // Nada que actualizar
@@ -839,7 +885,7 @@ app.post('/files/edit/:id', (req, res) => {
         `UPDATE html_files SET ${updates.join(', ')} WHERE id = $${idx}`,
         params
       );
-      res.json({ success: true, previewImageUrl });
+      res.json({ success: true, previewImageUrl, previewVideoUrl });
     } catch (error) {
       console.error('Error en /files/edit/:id:', error);
       res.status(500).json({ success: false, message: 'Error al actualizar el archivo.' });
