@@ -16,6 +16,13 @@ const { v4: uuidv4 } = require('uuid');
 const { createClient } = require('@supabase/supabase-js');
 const { publishBuffer } = require('./services/githubPagesPublisher');
 
+// Lista de palabras prohibidas (igual que en el frontend)
+const BAD_WORDS = [
+  'puta','mierda','cabron','pendejo','maricon','joder','coño','culero','puto','gilipollas','zorra','imbecil','idiota','cagada','perra','tonto','estupido','malparido',
+  'fuck','shit','bitch','asshole','dick','cunt','bastard','fag','motherfucker','slut','whore','jerk','idiot','stupid','retard','damn','crap','suck','pussy',
+  'porn','porno','xxx','sex','sexo','nude','nudes','naked','desnudo','desnuda'
+];
+
 const app = express();
 const http = require('http');
 const server = http.createServer(app);
