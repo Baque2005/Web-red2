@@ -1202,6 +1202,7 @@ const URL_REGEX = /(https?:\/\/|www\.|\.com\b|\.net\b|\.org\b|\.io\b|\.xyz\b|\.g
 // --- Mensajes de chat con reacciones ---
 app.get('/chat/messages', async (req, res) => {
   try {
+    console.log('[API] GET /chat/messages llamado');
     const since = dayjs().subtract(12, 'hour').toDate();
     // Mensajes
     const result = await pool.query(
@@ -1226,9 +1227,11 @@ app.get('/chat/messages', async (req, res) => {
         reactions[r.message_id].push({ emoji: r.emoji, count: Number(r.count) });
       });
     }
+    console.log('[API] GET /chat/messages responde JSON', { mensajes: messages.length, reacciones: Object.keys(reactions).length });
     res.json({ messages, reactions });
   } catch (err) {
-    res.status(500).json({ messages: [], reactions: {} });
+    console.error('[API] GET /chat/messages ERROR', err);
+    res.status(500).json({ messages: [], reactions: {}, error: err.message });
   }
 });
 
