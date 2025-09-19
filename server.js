@@ -686,15 +686,14 @@ app.post('/auth/refresh', (req, res) => {
   });
 });
 
-// Archivos estáticos y SPA
-app.use(express.static('public'));
+// --- RUTAS DE API ---
+// (Todas las rutas de API ya están arriba en el archivo)
 
+// --- ARCHIVOS ESTÁTICOS Y SPA ---
+app.use(express.static('public'));
 app.use('/uploads', express.static(uploadDir));
 const buildPath = path.join(__dirname, 'build');
 app.use(express.static(buildPath));
-
-// Elimina la línea duplicada (ya tienes app.use('/auth', authRoutes) arriba)
-// app.use('/auth', authRoutes);
 
 // Ruta raíz (opcional)
 app.get('/', (req, res) => {
@@ -702,7 +701,7 @@ app.get('/', (req, res) => {
 });
 
 // Catch-all seguro para SPA (NO captura '/', excluye prefijos de API/estáticos)
-app.get(/^\/(?!api|auth|files|uploads)(?:.+)$/, (req, res) => {
+app.get(/^\/(?!api|auth|files|uploads|chat)(?:.+)$/, (req, res) => {
   res.sendFile(path.join(buildPath, 'index.html'), err => {
     if (err && err.code !== 'ECONNABORTED') {
       console.error('Error enviando index.html:', err);
