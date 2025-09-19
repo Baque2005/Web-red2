@@ -19,6 +19,8 @@ const { publishBuffer } = require('./services/githubPagesPublisher');
 const app = express();
 const http = require('http');
 const server = http.createServer(app);
+const isDev = process.env.NODE_ENV === 'development';
+const CLIENT_URL = isDev ? process.env.CLIENT_URL_DEV : process.env.CLIENT_URL_PROD;
 const { Server: SocketIO } = require('socket.io');
 const io = new SocketIO(server, {
   cors: {
@@ -29,9 +31,6 @@ const io = new SocketIO(server, {
 });
 const pool = require('./config/db');
 const authRoutes = require('./routes/auth');
-
-const isDev = process.env.NODE_ENV === 'development';
-const CLIENT_URL = isDev ? process.env.CLIENT_URL_DEV : process.env.CLIENT_URL_PROD;
 
 // Configuración de Supabase
 const SUPABASE_URL = 'https://dpkubmzabfqwgduifpzo.supabase.co';
