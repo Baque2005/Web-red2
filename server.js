@@ -17,6 +17,16 @@ const { createClient } = require('@supabase/supabase-js');
 const { publishBuffer } = require('./services/githubPagesPublisher');
 
 const app = express();
+const http = require('http');
+const server = http.createServer(app);
+const { Server: SocketIO } = require('socket.io');
+const io = new SocketIO(server, {
+  cors: {
+    origin: CLIENT_URL,
+    methods: ['GET', 'POST'],
+    credentials: false
+  }
+});
 const pool = require('./config/db');
 const authRoutes = require('./routes/auth');
 
@@ -763,9 +773,77 @@ app.get('/files/download/:year/:month/:filename', async (req, res) => {
 //   console.log('Archivos encontrados en Supabase:', files.length);
 // }
 
-// Iniciar servidor
+// --- SOCKET.IO: Chat global y reacciones ---
+io.on('connection', (socket) => {
+  // Mensaje global
+  socket.on('chatMessage', async ({ token, text }) => {
+    let userId = null;
+    try {
+      const user = jwt.verify(token, process.env.JWT_SECRET);
+      if (user?.id) userId = user.id;
+    } catch {}
+    if (!userId || !text || typeof text !== 'string' || text.trim().length === 0) return;
+    // Censura
+    let censored = text;
+    let foundBad = false;
+    BAD_WORDS.forEach(word => {
+      const regex = new RegExp(`\\b${word}\\b`, 'gi');
+      if (regex.test(censored)) foundBad = true;
+      censored = censored.replace(regex, '***');
+    });
+    if (URL_REGEX.test(censored)) {
+      foundBad = true;
+      censored = censored.replace(URL_REGEX, '[enlace bloqueado]');
+    }
+    if (foundBad) return;
+    try {
+      const result = await pool.query(
+        'INSERT INTO global_chat_messages (user_id, text, created_at) VALUES ($1, $2, NOW()) RETURNING id',
+        [userId, censored.trim()]
+      );
+      const msgId = result.rows[0].id;
+      // Obtiene datos del usuario
+      const userRes = await pool.query('SELECT name, photo, modalidad FROM users WHERE id = $1', [userId]);
+      const userData = userRes.rows[0] || {};
+      const message = {
+        id: msgId,
+        user_id: userId,
+        name: userData.name,
+        photo: userData.photo,
+        modalidad: userData.modalidad,
+        text: censored.trim(),
+        created_at: new Date()
+      };
+      io.emit('chatMessage', message);
+    } catch {}
+  });
+
+  // Reacción a mensaje
+  socket.on('chatReaction', async ({ token, messageId, emoji }) => {
+    let userId = null;
+    try {
+      const user = jwt.verify(token, process.env.JWT_SECRET);
+      if (user?.id) userId = user.id;
+    } catch {}
+    if (!userId || !messageId || !emoji) return;
+    try {
+      // Guarda reacción en la base de datos
+      await pool.query(
+        'INSERT INTO global_chat_reactions (message_id, user_id, emoji, created_at) VALUES ($1, $2, $3, NOW()) ON CONFLICT (message_id, user_id, emoji) DO NOTHING',
+        [messageId, userId, emoji]
+      );
+      // Obtiene conteo actualizado de reacciones para ese mensaje
+      const { rows } = await pool.query(
+        'SELECT emoji, COUNT(*) AS count FROM global_chat_reactions WHERE message_id = $1 GROUP BY emoji',
+        [messageId]
+      );
+      io.emit('chatReaction', { messageId, reactions: rows });
+    } catch {}
+  });
+});
+
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Servidor backend en http://localhost:${PORT}`);
 });
 
@@ -1110,9 +1188,11 @@ const BAD_WORDS = [
 ];
 const URL_REGEX = /(https?:\/\/|www\.|\.com\b|\.net\b|\.org\b|\.io\b|\.xyz\b|\.gg\b|\.me\b|\.to\b|\.ly\b|\.co\b)/i;
 
+// --- Mensajes de chat con reacciones ---
 app.get('/chat/messages', async (req, res) => {
   try {
     const since = dayjs().subtract(12, 'hour').toDate();
+    // Mensajes
     const result = await pool.query(
       `SELECT m.id, m.user_id, u.name, u.photo, u.modalidad, m.text, m.created_at
        FROM global_chat_messages m
@@ -1121,12 +1201,27 @@ app.get('/chat/messages', async (req, res) => {
        ORDER BY m.created_at ASC`,
       [since]
     );
-    res.json({ messages: result.rows });
+    const messages = result.rows;
+    // Reacciones por mensaje
+    const ids = messages.map(m => m.id);
+    let reactions = {};
+    if (ids.length) {
+      const { rows } = await pool.query(
+        'SELECT message_id, emoji, COUNT(*) AS count FROM global_chat_reactions WHERE message_id = ANY($1::int[]) GROUP BY message_id, emoji',
+        [ids]
+      );
+      rows.forEach(r => {
+        if (!reactions[r.message_id]) reactions[r.message_id] = [];
+        reactions[r.message_id].push({ emoji: r.emoji, count: Number(r.count) });
+      });
+    }
+    res.json({ messages, reactions });
   } catch (err) {
-    res.status(500).json({ messages: [] });
+    res.status(500).json({ messages: [], reactions: {} });
   }
 });
 
+// --- Envío de mensaje por HTTP (opcional, frontend usa socket.io) ---
 app.post('/chat/messages', async (req, res) => {
   let userId = req.user?.id;
   const auth = req.headers.authorization;
@@ -1160,10 +1255,24 @@ app.post('/chat/messages', async (req, res) => {
   }
 
   try {
-    await pool.query(
-      'INSERT INTO global_chat_messages (user_id, text, created_at) VALUES ($1, $2, NOW())',
+    const result = await pool.query(
+      'INSERT INTO global_chat_messages (user_id, text, created_at) VALUES ($1, $2, NOW()) RETURNING id',
       [userId, censored.trim()]
     );
+    const msgId = result.rows[0].id;
+    // Obtiene datos del usuario
+    const userRes = await pool.query('SELECT name, photo, modalidad FROM users WHERE id = $1', [userId]);
+    const userData = userRes.rows[0] || {};
+    const message = {
+      id: msgId,
+      user_id: userId,
+      name: userData.name,
+      photo: userData.photo,
+      modalidad: userData.modalidad,
+      text: censored.trim(),
+      created_at: new Date()
+    };
+    io.emit('chatMessage', message);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Error al enviar mensaje' });
