@@ -1331,18 +1331,12 @@ app.post('/chat/messages', async (req, res) => {
 
   // Censura palabras prohibidas y enlaces
   let censored = text;
-  let foundBad = false;
   BAD_WORDS.forEach(word => {
     const regex = new RegExp(`\\b${word}\\b`, 'gi');
-    if (regex.test(censored)) foundBad = true;
-    censored = censored.replace(regex, '***');
+    censored = censored.replace(regex, '#####');
   });
   if (URL_REGEX.test(censored)) {
-    foundBad = true;
     censored = censored.replace(URL_REGEX, '[enlace bloqueado]');
-  }
-  if (foundBad) {
-    return res.status(400).json({ success: false, message: 'Mensaje contiene contenido prohibido.' });
   }
 
   try {
@@ -1379,3 +1373,37 @@ setInterval(async () => {
     console.error('Error limpiando mensajes de chat:', err);
   }
 }, 60 * 60 * 1000); // cada hora
+
+// --- Endpoint para eliminar mensaje del chat global (solo admin) ---
+app.delete('/chat/messages/:id', async (req, res) => {
+  let user = req.user;
+  const auth = req.headers.authorization;
+  if (!user && auth?.startsWith('Bearer ')) {
+    try {
+      user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
+    } catch {}
+  }
+  if (!user || !user.id) return res.status(401).json({ success: false, message: 'No autenticado' });
+  // Verifica si es admin
+  let isAdmin = false;
+  try {
+    const result = await pool.query('SELECT rol FROM users WHERE id = $1', [user.id]);
+    isAdmin = result.rows[0]?.rol === 'admin';
+  } catch {}
+  if (!isAdmin) return res.status(403).json({ success: false, message: 'Solo el admin puede eliminar mensajes.' });
+  const msgId = req.params.id;
+  if (!msgId || isNaN(Number(msgId))) return res.status(400).json({ success: false, message: 'ID inválido' });
+  try {
+    // Elimina reacciones asociadas
+    await pool.query('DELETE FROM global_chat_reactions WHERE message_id = $1', [msgId]);
+    // Elimina el mensaje
+    const result = await pool.query('DELETE FROM global_chat_messages WHERE id = $1', [msgId]);
+    if (result.rowCount > 0) {
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ success: false, message: 'Mensaje no encontrado' });
+    }
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Error al eliminar el mensaje' });
+  }
+});
