@@ -23,6 +23,9 @@ const BAD_WORDS = [
   'porn','porno','xxx','sex','sexo','nude','nudes','naked','desnudo','desnuda'
 ];
 
+// Regex para detectar enlaces (igual que en el frontend)
+const URL_REGEX = /(https?:\/\/|www\.)[^\s]+/i;
+
 const app = express();
 const http = require('http');
 const server = http.createServer(app);
