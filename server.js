@@ -776,11 +776,22 @@ io.on('connection', (socket) => {
   // Mensaje global
   socket.on('chatMessage', async ({ token, text }) => {
     let userId = null;
+    let userRol = null;
     try {
       const user = jwt.verify(token, process.env.JWT_SECRET);
       if (user?.id) userId = user.id;
     } catch {}
     if (!userId || !text || typeof text !== 'string' || text.trim().length === 0) return;
+
+    // Consulta si solo admin puede escribir
+    const onlyAdminCanWrite = await getOnlyAdminCanWrite();
+    if (onlyAdminCanWrite) {
+      // Consulta rol del usuario
+      const result = await pool.query('SELECT rol FROM users WHERE id = $1', [userId]);
+      userRol = result.rows[0]?.rol;
+      if (userRol !== 'admin') return; // No permitir escribir
+    }
+
     // Censura
     let censored = text;
     let foundBad = false;
@@ -1190,13 +1201,59 @@ app.use(async (req, res, next) => {
   next();
 });
 
-// Lista de palabras prohibidas y regex para enlaces
-const BAD_WORDS = [
-  'puta','mierda','cabron','pendejo','maricon','joder','coño','culero','puto','gilipollas','zorra','imbecil','idiota','cagada','perra','tonto','estupido','malparido',
-  'fuck','shit','bitch','asshole','dick','cunt','bastard','fag','motherfucker','slut','whore','jerk','idiot','stupid','retard','damn','crap','suck','pussy',
-  'porn','porno','xxx','sex','sexo','nude','nudes','naked','desnudo','desnuda'
-];
-const URL_REGEX = /(https?:\/\/|www\.|\.com\b|\.net\b|\.org\b|\.io\b|\.xyz\b|\.gg\b|\.me\b|\.to\b|\.ly\b|\.co\b)/i;
+// --- Persistencia de "solo admin puede escribir" en la base de datos ---
+// Crea la tabla si no existe (ejecuta una vez en tu base de datos):
+// CREATE TABLE IF NOT EXISTS chat_settings (id SERIAL PRIMARY KEY, only_admin_can_write BOOLEAN DEFAULT FALSE);
+
+async function getOnlyAdminCanWrite() {
+  // Solo hay un registro, id=1
+  const { rows } = await pool.query('SELECT only_admin_can_write FROM chat_settings WHERE id = 1');
+  return rows.length ? !!rows[0].only_admin_can_write : false;
+}
+
+async function setOnlyAdminCanWrite(value) {
+  // Inserta o actualiza el registro único
+  await pool.query(
+    `INSERT INTO chat_settings (id, only_admin_can_write) VALUES (1, $1)
+     ON CONFLICT (id) DO UPDATE SET only_admin_can_write = $1`,
+    [!!value]
+  );
+}
+
+// Endpoint para consultar el estado actual
+app.get('/chat/only-admin-can-write', async (req, res) => {
+  try {
+    const value = await getOnlyAdminCanWrite();
+    res.json({ onlyAdminCanWrite: value });
+  } catch (err) {
+    res.status(500).json({ onlyAdminCanWrite: false });
+  }
+});
+
+// Endpoint para cambiar el estado (solo admin)
+app.post('/chat/only-admin-can-write', async (req, res) => {
+  let user = req.user;
+  const auth = req.headers.authorization;
+  if (!user && auth?.startsWith('Bearer ')) {
+    try {
+      user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
+    } catch {}
+  }
+  let isAdmin = false;
+  if (user && user.id) {
+    const result = await pool.query('SELECT rol FROM users WHERE id = $1', [user.id]);
+    isAdmin = result.rows[0]?.rol === 'admin';
+  }
+  if (!isAdmin) return res.status(403).json({ success: false, message: 'No autorizado' });
+
+  const { onlyAdminCanWrite } = req.body;
+  try {
+    await setOnlyAdminCanWrite(!!onlyAdminCanWrite);
+    res.json({ success: true, onlyAdminCanWrite: !!onlyAdminCanWrite });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Error al actualizar estado.' });
+  }
+});
 
 // --- Mensajes de chat con reacciones ---
 app.get('/chat/messages', async (req, res) => {
@@ -1237,6 +1294,7 @@ app.get('/chat/messages', async (req, res) => {
 // --- Envío de mensaje por HTTP (opcional, frontend usa socket.io) ---
 app.post('/chat/messages', async (req, res) => {
   let userId = req.user?.id;
+  let userRol = null;
   const auth = req.headers.authorization;
   if (!userId && auth?.startsWith('Bearer ')) {
     try {
@@ -1245,6 +1303,16 @@ app.post('/chat/messages', async (req, res) => {
     } catch {}
   }
   if (!userId) return res.status(401).json({ success: false, message: 'No autenticado' });
+
+  // Consulta si solo admin puede escribir
+  const onlyAdminCanWrite = await getOnlyAdminCanWrite();
+  if (onlyAdminCanWrite) {
+    const result = await pool.query('SELECT rol FROM users WHERE id = $1', [userId]);
+    userRol = result.rows[0]?.rol;
+    if (userRol !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Solo el admin puede escribir en el chat.' });
+    }
+  }
 
   let { text } = req.body;
   if (!text || typeof text !== 'string' || text.trim().length === 0) {
