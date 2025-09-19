@@ -831,12 +831,24 @@ io.on('connection', (socket) => {
         'INSERT INTO global_chat_reactions (message_id, user_id, emoji, created_at) VALUES ($1, $2, $3, NOW()) ON CONFLICT (message_id, user_id, emoji) DO NOTHING',
         [messageId, userId, emoji]
       );
-      // Obtiene conteo actualizado de reacciones para ese mensaje
-      const { rows } = await pool.query(
-        'SELECT emoji, COUNT(*) AS count FROM global_chat_reactions WHERE message_id = $1 GROUP BY emoji',
-        [messageId]
+      // Obtiene todas las reacciones de todos los mensajes recientes
+      const since = dayjs().subtract(12, 'hour').toDate();
+      const { rows: allMsgs } = await pool.query(
+        'SELECT id FROM global_chat_messages WHERE created_at > $1', [since]
       );
-      io.emit('chatReaction', { messageId, reactions: rows });
+      const ids = allMsgs.map(m => m.id);
+      let reactions = {};
+      if (ids.length) {
+        const { rows } = await pool.query(
+          'SELECT message_id, emoji, COUNT(*) AS count FROM global_chat_reactions WHERE message_id = ANY($1::int[]) GROUP BY message_id, emoji',
+          [ids]
+        );
+        rows.forEach(r => {
+          if (!reactions[r.message_id]) reactions[r.message_id] = [];
+          reactions[r.message_id].push({ emoji: r.emoji, count: Number(r.count) });
+        });
+      }
+      io.emit('chatReaction', { reactions });
     } catch {}
   });
 });
