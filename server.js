@@ -292,7 +292,7 @@ app.get('/files', async (req, res) => {
     const pageLimit = Math.max(1, Math.min(parseInt(limit, 10) || 20, 100));
     const offset = (pageNum - 1) * pageLimit;
     let query = `
-      SELECT f.id, f.filename, f.file_data, f.file_url, f.user_id, u.name AS user_name, f.tipo, f.categoria, f.descripcion, f.downloads, f.preview_image_url, f.preview_video_url, f.epago,
+      SELECT f.id, f.filename, f.file_data, f.file_url, f.user_id, u.name AS user_name, u.photo AS user_photo, f.tipo, f.categoria, f.descripcion, f.downloads, f.preview_image_url, f.preview_video_url, f.epago,
         (SELECT COUNT(*) FROM file_likes WHERE file_id = f.id) AS likes
       FROM html_files f
       JOIN users u ON f.user_id = u.id
