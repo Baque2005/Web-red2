@@ -53,7 +53,10 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir);
 }
 
+
 // Middlewares
+const cookieParser = require('cookie-parser');
+app.use(cookieParser());
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
@@ -90,8 +93,7 @@ app.options(/.*/, cors(corsOptions));
 // Usuarios online
 let onlineUsers = new Set();
 let onlineTimestamps = {};
-let onlineGuests = {};
-let guestCounter = 1;
+let onlineGuests = {}; // guestId: timestamp
 
 app.use((req, res, next) => {
   let userId = null;
@@ -113,15 +115,12 @@ app.use((req, res, next) => {
     onlineTimestamps[userId] = Date.now();
   } else {
     // Usuario invitado (no logueado)
-    // Usa cookie temporal o IP para identificar, pero aquí solo por sesión
-    // Genera un id único por sesión
-    if (!req.cookies.guestId) {
-      req.cookies.guestId = `guest_${guestCounter++}`;
+    // Identifica por header personalizado x-guest-id
+    let guestId = req.headers['x-guest-id'];
+    if (guestId && typeof guestId === 'string' && guestId.length >= 8 && guestId.length <= 64) {
+      onlineGuests[guestId] = Date.now();
     }
-    const guestId = req.cookies.guestId;
-    onlineGuests[guestId] = Date.now();
   }
-
   next();
 });
 
