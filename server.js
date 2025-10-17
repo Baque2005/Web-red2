@@ -703,9 +703,6 @@ app.delete('/files/delete/:id', async (req, res) => {
   }
 });
 
-// 1. Requiere cookie-parser al inicio del archivo
-const cookieParser = require('cookie-parser');
-app.use(cookieParser());
 
 // Endpoint para renovar el access token usando el refresh token del header/body (NO cookies)
 app.post('/auth/refresh', (req, res) => {
