@@ -90,6 +90,8 @@ app.options(/.*/, cors(corsOptions));
 // Usuarios online
 let onlineUsers = new Set();
 let onlineTimestamps = {};
+let onlineGuests = {};
+let guestCounter = 1;
 
 app.use((req, res, next) => {
   let userId = null;
@@ -109,6 +111,15 @@ app.use((req, res, next) => {
   if (userId) {
     onlineUsers.add(userId);
     onlineTimestamps[userId] = Date.now();
+  } else {
+    // Usuario invitado (no logueado)
+    // Usa cookie temporal o IP para identificar, pero aquí solo por sesión
+    // Genera un id único por sesión
+    if (!req.cookies.guestId) {
+      req.cookies.guestId = `guest_${guestCounter++}`;
+    }
+    const guestId = req.cookies.guestId;
+    onlineGuests[guestId] = Date.now();
   }
 
   next();
@@ -122,6 +133,11 @@ setInterval(() => {
       delete onlineTimestamps[userId];
     }
   }
+  for (const guestId in onlineGuests) {
+    if (!onlineGuests[guestId] || now - onlineGuests[guestId] > 15000) {
+      delete onlineGuests[guestId];
+    }
+  }
 }, 10000);
 
 // Rutas
@@ -130,13 +146,23 @@ app.use('/auth', authRoutes);
 
 app.get('/users/online', async (req, res) => {
   try {
-    if (onlineUsers.size === 0) return res.json({ users: [] });
     const ids = Array.from(onlineUsers);
-    const result = await pool.query(
-      'SELECT id, name, photo FROM users WHERE id = ANY($1::int[])',
-      [ids]
-    );
-    res.json({ users: result.rows });
+    let result = { rows: [] };
+    if (ids.length > 0) {
+      result = await pool.query(
+        'SELECT id, name, photo FROM users WHERE id = ANY($1::int[])',
+        [ids]
+      );
+    }
+    // Agrega invitados
+    const guests = Object.keys(onlineGuests).map((guestId, idx) => ({
+      id: null,
+      name: null,
+      photo: null,
+      guest: true,
+      guestId: idx + 1
+    }));
+    res.json({ users: [...result.rows, ...guests] });
   } catch (err) {
     console.error('Error al obtener usuarios online:', err);
     res.json({ users: [] });
