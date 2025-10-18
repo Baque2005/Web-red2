@@ -421,20 +421,22 @@ app.post('/files/:id/like', async (req, res) => {
     try {
       const user = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET);
       if (user?.id) userId = user.id;
-    } catch {}
+    } catch (err) {
+      console.error('Error al verificar JWT en like:', err);
+    }
   }
   if (!userId) return res.status(401).json({ success: false, message: 'No autenticado' });
   const fileId = req.params.id;
   try {
-    // Cambia a ON CONFLICT (file_id, user_id) DO NOTHING
     await pool.query(
       'INSERT INTO file_likes (file_id, user_id) VALUES ($1, $2) ON CONFLICT (file_id, user_id) DO NOTHING',
       [fileId, userId]
     );
     const { rows } = await pool.query('SELECT COUNT(*)::int AS likes FROM file_likes WHERE file_id = $1', [fileId]);
     res.json({ success: true, likes: rows[0]?.likes || 0 });
-  } catch {
-    res.status(500).json({ success: false });
+  } catch (err) {
+    console.error('Error al dar like:', err);
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
