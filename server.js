@@ -425,14 +425,17 @@ app.post('/files/:id/like', async (req, res) => {
       console.error('Error al verificar JWT en like:', err);
     }
   }
-  if (!userId) return res.status(401).json({ success: false, message: 'No autenticado' });
   const fileId = req.params.id;
+  console.log('[LIKE] fileId:', fileId, 'userId:', userId);
+  if (!userId) return res.status(401).json({ success: false, message: 'No autenticado' });
   try {
-    await pool.query(
+    const insertResult = await pool.query(
       'INSERT INTO file_likes (file_id, user_id) VALUES ($1, $2) ON CONFLICT (file_id, user_id) DO NOTHING',
       [fileId, userId]
     );
+    console.log('[LIKE] insertResult:', insertResult.rowCount);
     const { rows } = await pool.query('SELECT COUNT(*)::int AS likes FROM file_likes WHERE file_id = $1', [fileId]);
+    console.log('[LIKE] likes count:', rows[0]?.likes);
     res.json({ success: true, likes: rows[0]?.likes || 0 });
   } catch (err) {
     console.error('Error al dar like:', err);
@@ -475,28 +478,32 @@ app.get('/files/:id/liked', async (req, res) => {
   res.json({ liked: rows.length > 0 });
 });
 
-app.get('/files/download/:filedata', async (req, res) => {
+app.get('/files/download/:year/:month/:filename', async (req, res) => {
   try {
+    const { year, month, filename } = req.params;
+    const filedata = `${year}/${month}/${filename}`;
+    console.log('[DOWNLOAD] filedata:', filedata);
     // Busca el archivo por file_data
     const { rows } = await pool.query(
       'SELECT id, filename, supabase_url, downloads FROM html_files WHERE file_data = $1 LIMIT 1',
-      [req.params.filedata]
+      [filedata]
     );
     if (!rows.length) {
+      console.log('[DOWNLOAD] Archivo no encontrado:', filedata);
       return res.status(404).json({ success: false, message: 'Archivo no encontrado.' });
     }
     // Incrementa descargas
-    await pool.query('UPDATE html_files SET downloads = downloads + 1 WHERE id = $1', [rows[0].id]);
+    const updateResult = await pool.query('UPDATE html_files SET downloads = downloads + 1 WHERE id = $1', [rows[0].id]);
+    console.log('[DOWNLOAD] updateResult:', updateResult.rowCount);
     // Redirige a la URL pública de Supabase Storage
     const supabaseUrl = rows[0].supabase_url;
     if (!supabaseUrl) {
+      console.log('[DOWNLOAD] Archivo sin supabase_url:', filedata);
       return res.status(404).json({ success: false, message: 'Archivo no disponible para descargar.' });
     }
-    // Validación extra: ¿la URL realmente existe?
-    // Opcional: puedes hacer un HEAD request para verificar si el archivo existe en Supabase
-    // Pero normalmente si la URL está bien formada, debe funcionar.
     return res.redirect(supabaseUrl);
   } catch (err) {
+    console.error('Error al descargar el archivo:', err);
     res.status(500).json({ success: false, message: 'Error al descargar el archivo.' });
   }
 });
