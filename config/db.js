@@ -6,7 +6,6 @@ const pool = new Pool({
   ssl: {
     rejectUnauthorized: false, // necesario para conexión segura con Render
   },
-  max: 3 // Limita el pool a 3 conexiones simultáneas (ajusta según tu plan de Render)
 });
 
 module.exports = pool;
