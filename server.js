@@ -1,28 +1,9 @@
 // ...existing code...
-// Ruta para obtener archivo por id único (debe ir después de inicializar 'app')
-app.get('/files/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const query = `
-      SELECT f.*, u.name AS user_name, u.photo AS user_photo, u.email AS user_email,
-        (SELECT COUNT(*) FROM file_likes WHERE file_id = f.id) AS likes
-      FROM html_files f
-      JOIN users u ON f.user_id = u.id
-      WHERE f.id = $1
-      LIMIT 1
-    `;
-    const { rows } = await pool.query(query, [id]);
-    if (rows.length === 0) return res.status(404).json({ error: 'Archivo no encontrado' });
-    res.json({ file: rows[0] });
-  } catch (err) {
-    console.error('Error al obtener archivo por id:', err);
-    res.status(500).json({ error: 'Error interno del servidor' });
-  }
-});
-// ...existing code...
-// (mueve la ruta después de inicializar app)
+// Inicialización de Express
 const express = require('express');
-        res.json({ file: rows[0], message: 'Archivo encontrado' });
+// ...ya inicializado arriba...
+
+// (asegúrate de que la inicialización de 'app' esté antes de las rutas)
 const PgSession = require('connect-pg-simple')(session);
 const passport = require('passport');
 const cors = require('cors');
@@ -42,10 +23,8 @@ const { publishBuffer } = require('./services/githubPagesPublisher');
 // Lista de palabras prohibidas (igual que en el frontend)
 const BAD_WORDS = [
   'puta','mierda','cabron','pendejo','maricon','joder','coño','culero','puto','gilipollas','zorra','imbecil','idiota','cagada','perra','tonto','estupido','malparido',
-  'fuck','shit','bitch','asshole','dick','cunt','bastard','fag','motherfucker','slut','whore','jerk','idiot','stupid','retard','damn','crap','suck','pussy',
-  'porn','porno','xxx','sex','sexo','nude','nudes','naked','desnudo','desnuda'
+  'fuck','shit','bitch','asshole','dick','cunt','bastard'
 ];
-
 // Regex para detectar enlaces (igual que en el frontend)
 const URL_REGEX = /(https?:\/\/|www\.)[^\s]+/i;
 
