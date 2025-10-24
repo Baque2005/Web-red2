@@ -1,3 +1,23 @@
+// Obtener archivo por id único
+app.get('/files/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const query = `
+      SELECT f.*, u.name AS user_name, u.photo AS user_photo, u.email AS user_email,
+        (SELECT COUNT(*) FROM file_likes WHERE file_id = f.id) AS likes
+      FROM html_files f
+      JOIN users u ON f.user_id = u.id
+      WHERE f.id = $1
+      LIMIT 1
+    `;
+    const { rows } = await pool.query(query, [id]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Archivo no encontrado' });
+    res.json({ file: rows[0] });
+  } catch (err) {
+    console.error('Error al obtener archivo por id:', err);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
 const express = require('express');
 const session = require('express-session');
 const PgSession = require('connect-pg-simple')(session);
