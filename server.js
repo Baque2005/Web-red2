@@ -19,7 +19,7 @@ app.get('/files/:id', async (req, res) => {
   }
 });
 const express = require('express');
-const session = require('express-session');
+        res.json({ file: rows[0], message: 'Archivo encontrado' });
 const PgSession = require('connect-pg-simple')(session);
 const passport = require('passport');
 const cors = require('cors');
