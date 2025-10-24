@@ -1,4 +1,5 @@
-// Obtener archivo por id único
+// ...existing code...
+// Ruta para obtener archivo por id único (debe ir después de inicializar 'app')
 app.get('/files/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -18,6 +19,8 @@ app.get('/files/:id', async (req, res) => {
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
+// ...existing code...
+// (mueve la ruta después de inicializar app)
 const express = require('express');
         res.json({ file: rows[0], message: 'Archivo encontrado' });
 const PgSession = require('connect-pg-simple')(session);
