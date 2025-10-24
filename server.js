@@ -1456,7 +1456,7 @@ app.get('/files/:id', async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Archivo no encontrado' });
     }
-    res.json(result.rows[0]);
+  res.json({ file: result.rows[0] });
   } catch (err) {
     res.status(500).json({ error: 'Error al buscar archivo' });
   }
