@@ -3,7 +3,7 @@
 const express = require('express');
 // ...ya inicializado arriba...
 
-// (asegúrate de que la inicialización de 'app' esté antes de las rutas)
+const session = require('express-session');
 const PgSession = require('connect-pg-simple')(session);
 const passport = require('passport');
 const cors = require('cors');
