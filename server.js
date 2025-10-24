@@ -1,3 +1,22 @@
+// Obtener archivo por ID
+app.get('/files/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(`
+      SELECT f.*, u.name AS user_name, u.photo AS user_photo, u.email AS user_email
+      FROM html_files f
+      JOIN users u ON f.user_id = u.id
+      WHERE f.id = $1
+      LIMIT 1
+    `, [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Archivo no encontrado' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Error al buscar archivo' });
+  }
+});
 // ...existing code...
 // Inicialización de Express
 const express = require('express');
