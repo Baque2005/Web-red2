@@ -174,7 +174,7 @@ app.get('/users/online', async (req, res) => {
 // Subida de archivos HTML a GitHub Pages (sin restricción de login)
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 20 * 1024 * 1024 }, // aumenta límite para video
+  limits: { fileSize: 50 * 1024 * 1024 }, // aumenta límite a 50MB
   fileFilter: (req, file, cb) => {
     if (file.fieldname === 'file' && file.mimetype === 'text/html') return cb(null, true);
     if (file.fieldname === 'image' && file.mimetype.startsWith('image/')) return cb(null, true);
