@@ -83,11 +83,19 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 // CORS: SOLO deja el middleware cors bien configurado y elimina el manual
+const allowedOrigins = [process.env.CLIENT_URL_PROD, process.env.CLIENT_URL_DEV];
 const corsOptions = {
-  origin: CLIENT_URL,
+  origin: function (origin, callback) {
+    // Permitir peticiones sin origin (como Postman) y desde los orígenes permitidos
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   methods: ['GET','POST','DELETE','PUT','PATCH','OPTIONS'],
   allowedHeaders: ['Authorization', 'Content-Type', 'Accept', 'X-Requested-With'],
-  credentials: false, // usas JWT por header, no cookies
+  credentials: false,
   optionsSuccessStatus: 204,
 };
 app.use(cors(corsOptions));
