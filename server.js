@@ -506,13 +506,28 @@ app.get('/files/download/:year/:month/:filename', async (req, res) => {
     // Incrementa descargas
     const updateResult = await pool.query('UPDATE html_files SET downloads = downloads + 1 WHERE id = $1', [rows[0].id]);
     console.log('[DOWNLOAD] updateResult:', updateResult.rowCount);
-    // Redirige a la URL pública de Supabase Storage
-    const supabaseUrl = rows[0].supabase_url;
-    if (!supabaseUrl) {
-      console.log('[DOWNLOAD] Archivo sin supabase_url:', filedata);
-      return res.status(404).json({ success: false, message: 'Archivo no disponible para descargar.' });
+    // Genera una URL firmada (no exponer publicUrl cuando el bucket es privado)
+    try {
+      const { data: signData, error: signError } = await supabase
+        .storage
+        .from('html-files')
+        .createSignedUrl(filedata, 60); // expira en 60s
+
+      if (signError || !signData) {
+        console.error('[DOWNLOAD] Error generando signed URL:', signError);
+        return res.status(500).json({ success: false, message: 'No se pudo generar la URL de descarga.' });
+      }
+
+      const signedUrl = signData?.signedUrl || signData?.signedURL || null;
+      if (!signedUrl) {
+        return res.status(500).json({ success: false, message: 'No se pudo generar la URL de descarga.' });
+      }
+
+      return res.redirect(signedUrl);
+    } catch (e) {
+      console.error('[DOWNLOAD] Excepción generando signed URL:', e);
+      return res.status(500).json({ success: false, message: 'Error al generar la URL de descarga.' });
     }
-    return res.redirect(supabaseUrl);
   } catch (err) {
     console.error('Error al descargar el archivo:', err);
     res.status(500).json({ success: false, message: 'Error al descargar el archivo.' });
@@ -1467,5 +1482,61 @@ app.get('/files/:id', async (req, res) => {
   res.json({ file: result.rows[0] });
   } catch (err) {
     res.status(500).json({ error: 'Error al buscar archivo' });
+  }
+});
+
+// Endpoint para obtener signed URLs para un archivo y sus previews
+app.get('/files/:id/signed-url', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rows } = await pool.query('SELECT file_data, preview_image_url, preview_video_url FROM html_files WHERE id = $1 LIMIT 1', [id]);
+    if (!rows.length) return res.status(404).json({ success: false, message: 'Archivo no encontrado' });
+
+    const row = rows[0];
+    const result = {};
+
+    // Helper para extraer path desde publicUrl
+    const extractPathFromPublicUrl = (url) => {
+      if (!url || typeof url !== 'string') return null;
+      const m = url.match(/storage\/v1\/object\/public\/(.+)$/);
+      return m ? decodeURIComponent(m[1]) : null;
+    };
+
+    // File (html-files bucket)
+    if (row.file_data) {
+      try {
+        const { data: signData, error: signError } = await supabase.storage.from('html-files').createSignedUrl(row.file_data, 60);
+        if (signData && (signData.signedUrl || signData.signedURL)) result.file = signData.signedUrl || signData.signedURL;
+      } catch (e) {
+        console.error('Error generando signed URL para file:', e);
+      }
+    }
+
+    // Preview image
+    const imgPath = extractPathFromPublicUrl(row.preview_image_url);
+    if (imgPath) {
+      try {
+        const { data, error } = await supabase.storage.from('preview-images').createSignedUrl(imgPath, 60);
+        if (data && (data.signedUrl || data.signedURL)) result.previewImage = data.signedUrl || data.signedURL;
+      } catch (e) {
+        console.error('Error generando signed URL para preview image:', e);
+      }
+    }
+
+    // Preview video
+    const vidPath = extractPathFromPublicUrl(row.preview_video_url);
+    if (vidPath) {
+      try {
+        const { data, error } = await supabase.storage.from('preview-videos').createSignedUrl(vidPath, 60);
+        if (data && (data.signedUrl || data.signedURL)) result.previewVideo = data.signedUrl || data.signedURL;
+      } catch (e) {
+        console.error('Error generando signed URL para preview video:', e);
+      }
+    }
+
+    res.json({ success: true, urls: result });
+  } catch (err) {
+    console.error('Error en /files/:id/signed-url:', err);
+    res.status(500).json({ success: false, message: 'Error generando URLs' });
   }
 });
