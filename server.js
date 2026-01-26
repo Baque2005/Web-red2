@@ -254,12 +254,8 @@ app.post('/files/upload', (req, res) => {
       if (supaError && !String(supaError.message || '').toLowerCase().includes('already exists')) {
         return res.status(500).json({ success: false, message: 'Error al subir a Supabase: ' + supaError.message });
       }
-      // 2. Obtener URL pública de Supabase
-      const { data: publicData } = supabase
-        .storage
-        .from('html-files')
-        .getPublicUrl(targetPath);
-      const supabaseUrl = publicData?.publicUrl || null;
+      // 2. Guardar path en Supabase (no obtener URL pública cuando los buckets son privados)
+      const supabaseUrl = targetPath; // Almacenar solo el path para generar signed URLs desde el servidor
 
       // 3. Publicar en GitHub Pages
       const publicUrl = await publishBuffer({
@@ -281,11 +277,8 @@ app.post('/files/upload', (req, res) => {
         if (vidError && !String(vidError.message || '').toLowerCase().includes('already exists')) {
           return res.status(500).json({ success: false, message: 'Error al subir video: ' + vidError.message });
         }
-        const { data: vidData } = supabase
-          .storage
-          .from('preview-videos')
-          .getPublicUrl(videoPath);
-        previewVideoUrl = vidData?.publicUrl || null;
+        // Guardar solo el path en la BD; la URL firmada será generada bajo demanda
+        previewVideoUrl = videoPath;
       } else if (imageFile) {
         const imageExt = path.extname(imageFile.originalname) || '.jpg';
         const imagePath = `preview-images/${y}/${m}/${slug}${imageExt}`;
@@ -296,11 +289,8 @@ app.post('/files/upload', (req, res) => {
         if (imgError && !String(imgError.message || '').toLowerCase().includes('already exists')) {
           return res.status(500).json({ success: false, message: 'Error al subir imagen: ' + imgError.message });
         }
-        const { data: imgData } = supabase
-          .storage
-          .from('preview-images')
-          .getPublicUrl(imagePath);
-        previewImageUrl = imgData?.publicUrl || null;
+        // Guardar solo el path en la BD; la URL firmada será generada bajo demanda
+        previewImageUrl = imagePath;
       }
 
       // 5. Guarda en la base de datos ambas rutas (usa userId)
@@ -1006,11 +996,8 @@ app.post('/files/edit/:id', (req, res) => {
       if (vidError && !String(vidError.message || '').toLowerCase().includes('already exists')) {
         return res.status(500).json({ success: false, message: 'Error al subir video: ' + vidError.message });
       }
-      const { data: vidData } = supabase
-        .storage
-        .from('preview-videos')
-        .getPublicUrl(videoPath);
-      previewVideoUrl = vidData?.publicUrl || null;
+      // Guardar solo el path; la URL firmada se generará bajo demanda
+      previewVideoUrl = videoPath;
     }
     if (imageFile) {
       // Sube la nueva imagen a Supabase Storage (sobrescribe)
@@ -1025,11 +1012,8 @@ app.post('/files/edit/:id', (req, res) => {
       if (imgError && !String(imgError.message || '').toLowerCase().includes('already exists')) {
         return res.status(500).json({ success: false, message: 'Error al subir imagen: ' + imgError.message });
       }
-      const { data: imgData } = supabase
-        .storage
-        .from('preview-images')
-        .getPublicUrl(imagePath);
-      previewImageUrl = imgData?.publicUrl || null;
+      // Guardar solo el path; la URL firmada se generará bajo demanda
+      previewImageUrl = imagePath;
     }
 
     // Solo agrega campos que realmente se van a actualizar
@@ -1495,11 +1479,15 @@ app.get('/files/:id/signed-url', async (req, res) => {
     const row = rows[0];
     const result = {};
 
-    // Helper para extraer path desde publicUrl
+    // Helper para extraer path desde publicUrl o aceptar paths ya guardados
     const extractPathFromPublicUrl = (url) => {
       if (!url || typeof url !== 'string') return null;
+      // Caso 1: URL pública de Supabase: /storage/v1/object/public/<bucket>/<path>
       const m = url.match(/storage\/v1\/object\/public\/(.+)$/);
-      return m ? decodeURIComponent(m[1]) : null;
+      if (m) return decodeURIComponent(m[1]);
+      // Caso 2: ya se guardó el path en la BD (ej: "preview-images/2026/01/uuid.jpg")
+      if (url.includes('/') && !url.startsWith('http')) return url;
+      return null;
     };
 
     // File (html-files bucket)
@@ -1538,5 +1526,64 @@ app.get('/files/:id/signed-url', async (req, res) => {
   } catch (err) {
     console.error('Error en /files/:id/signed-url:', err);
     res.status(500).json({ success: false, message: 'Error generando URLs' });
+  }
+});
+
+// Rate limiter simple en memoria (requests por IP por minuto)
+const rateWindowMs = 60 * 1000;
+const maxRequestsPerWindow = 60; // ajustar según necesidad
+const rateMap = new Map();
+
+// Endpoint general para generar signed URL a partir de una public URL o bucket+path
+app.post('/signed-url', async (req, res) => {
+  try {
+    const ip = req.ip || req.connection.remoteAddress || 'unknown';
+    const now = Date.now();
+    const entry = rateMap.get(ip) || [];
+    // limpiar timestamps viejos
+    const recent = entry.filter(t => now - t < rateWindowMs);
+    if (recent.length >= maxRequestsPerWindow) {
+      return res.status(429).json({ success: false, message: 'Too many requests' });
+    }
+    recent.push(now);
+    rateMap.set(ip, recent);
+
+    const { url, bucket, path: objectPath } = req.body || {};
+    let targetBucket = bucket;
+    let targetPath = objectPath;
+
+    if (!targetBucket || !targetPath) {
+      if (typeof url === 'string') {
+        // extraer /storage/v1/object/public/<bucket>/<path>
+        const m = url.match(/storage\/v1\/object\/public\/([^\/]+)\/(.+)$/);
+        if (m) {
+          targetBucket = m[1];
+          targetPath = decodeURIComponent(m[2]);
+        }
+      }
+    }
+
+    if (!targetBucket || !targetPath) {
+      return res.status(400).json({ success: false, message: 'Missing url or bucket/path' });
+    }
+
+    // TTL corto por defecto
+    const expires = Number(req.body.expires) || 60;
+
+    try {
+      const { data, error } = await supabase.storage.from(targetBucket).createSignedUrl(targetPath, expires);
+      if (error) {
+        console.error('Supabase createSignedUrl error:', error);
+        return res.status(500).json({ success: false, message: 'Error creating signed URL' });
+      }
+      const signed = data?.signedUrl || data?.signedURL || null;
+      return res.json({ success: true, signedUrl: signed });
+    } catch (e) {
+      console.error('Error generating signed url:', e);
+      return res.status(500).json({ success: false, message: 'Internal error' });
+    }
+  } catch (err) {
+    console.error('Error in /signed-url:', err);
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 });
