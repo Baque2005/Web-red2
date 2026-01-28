@@ -6,6 +6,7 @@
   "scripts": {
     "heroku-postbuild": "cd ../frontend && npm install && npm run build",
     "start": "node server.js",
+    "copy-storage": "node scripts/copy-supabase-storage.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

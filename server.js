@@ -46,7 +46,8 @@ const pool = require('./config/db');
 const authRoutes = require('./routes/auth');
 
 // Configuración de Supabase
-const SUPABASE_URL = 'https://dpkubmzabfqwgduifpzo.supabase.co';
+// Leer la URL desde .env para poder cambiar de proyecto sin tocar el código.
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://aklnaelyacxizhqwgryb.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
