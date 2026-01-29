@@ -954,6 +954,10 @@ app.post('/files/edit/:id', (req, res) => {
     const descripcion = typeof req.body.descripcion === 'string' ? req.body.descripcion : undefined;
     const tipo = typeof req.body.tipo === 'string' ? req.body.tipo : undefined;
     const categoria = typeof req.body.categoria === 'string' ? req.body.categoria : undefined;
+    // Nuevo: permitir actualizar filename y recibir una URL de imagen previa sin subir archivo
+    const filename = typeof req.body.filename === 'string' ? req.body.filename : undefined;
+    const previewImageUrlFromBody = typeof req.body.previewImageUrl === 'string' ? req.body.previewImageUrl :
+      (typeof req.body.preview_image_url === 'string' ? req.body.preview_image_url : undefined);
     const epago = typeof req.body.epago === 'string' && ['vip', 'gratuito'].includes(req.body.epago)
       ? req.body.epago
       : undefined;
@@ -1017,6 +1021,12 @@ app.post('/files/edit/:id', (req, res) => {
       previewImageUrl = imagePath;
     }
 
+    // Si nos pasaron una URL de imagen en el body (sin subir archivo), la guardamos tal cual
+    if (!previewImageUrl && previewImageUrlFromBody) {
+      // Guardar la URL/path tal cual en la BD
+      previewImageUrl = previewImageUrlFromBody;
+    }
+
     // Solo agrega campos que realmente se van a actualizar
     const updates = [];
     const params = [];
@@ -1024,6 +1034,7 @@ app.post('/files/edit/:id', (req, res) => {
     if (descripcion !== undefined) { updates.push(`descripcion = $${idx++}`); params.push(descripcion); }
     if (tipo !== undefined) { updates.push(`tipo = $${idx++}`); params.push(tipo); }
     if (categoria !== undefined) { updates.push(`categoria = $${idx++}`); params.push(categoria); }
+    if (filename !== undefined) { updates.push(`filename = $${idx++}`); params.push(filename); }
     if (previewImageUrl) { updates.push(`preview_image_url = $${idx++}`); params.push(previewImageUrl); }
     if (previewVideoUrl) { updates.push(`preview_video_url = $${idx++}`); params.push(previewVideoUrl); }
     if (epago !== undefined) { updates.push(`epago = $${idx++}`); params.push(epago); }
