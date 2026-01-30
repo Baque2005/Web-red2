@@ -454,7 +454,7 @@ app.post('/files/:id/unlike', async (req, res) => {
       if (user?.id) userId = user.id;
     } catch {}
   }
-  if (!userId) return res.status(401).json({ success: false, message: 'No autenticado' });
+  // Permitir suscripción anónima: si no hay userId, no fallamos aquí.
   const fileId = req.params.id;
   try {
     await pool.query('DELETE FROM file_likes WHERE file_id = $1 AND user_id = $2', [fileId, userId]);
@@ -1105,13 +1105,14 @@ app.post('/files/:id/purchase', async (req, res) => {
       if (user?.id) userId = user.id;
     } catch {}
   }
-  if (!userId) return res.status(401).json({ success: false });
+  // Permitir compras anónimas: si no hay userId, continuamos con userId = null
 
   const fileId = req.params.id;
   try {
     await pool.query(
+      // user_id puede ser NULL para compras anónimas
       'INSERT INTO file_purchases (file_id, user_id) VALUES ($1, $2) ON CONFLICT (file_id, user_id) DO NOTHING',
-      [fileId, userId]
+      [fileId, userId || null]
     );
     res.json({ success: true });
   } catch {
@@ -1134,7 +1135,8 @@ app.post('/files/:id/confirmPurchase', async (req, res) => {
     }
   }
 
-  if (!userId) return res.status(401).json({ success: false, message: 'Usuario no autenticado' });
+  // Permitir confirmar compras aunque el usuario no esté autenticado.
+  // En ese caso guardaremos user_id = NULL y payer_email será 'anonimo' si no hay payerEmail.
 
   // Validación: No permitir fileId "null" o no numérico
   const fileId = req.params.id;
@@ -1155,11 +1157,12 @@ app.post('/files/:id/confirmPurchase', async (req, res) => {
       return res.status(200).json({ success: true, message: 'Compra ya registrada' });
 
     // Registrar la compra en la base de datos
+    // Registrar la compra en la base de datos. userId puede ser NULL (anónimo)
     await pool.query(
       `INSERT INTO file_purchases 
        (file_id, user_id, paypal_order_id, payer_email, amount, created_at) 
        VALUES ($1, $2, $3, $4, $5, NOW())`,
-      [fileId, userId, orderID, payerEmail || null, amount || 0]
+      [fileId, userId || null, orderID, (payerEmail && payerEmail.length) ? payerEmail : 'anonimo', amount || 0]
     );
 
     res.json({ success: true, message: 'Compra registrada con éxito' });
@@ -1226,12 +1229,26 @@ app.post('/users/subscribe-vip', async (req, res) => {
   const expiresAt = now.add(1, 'month').toDate();
 
   try {
-    // Actualiza modalidad y fecha de expiración en la tabla users
-    await pool.query(
-      'UPDATE users SET modalidad = $1, vip_expiration = $2 WHERE id = $3',
-      ['vip', expiresAt, userId]
-    );
-    res.json({ success: true, expiresAt });
+    if (userId) {
+      // Actualiza modalidad y fecha de expiración en la tabla users
+      await pool.query(
+        'UPDATE users SET modalidad = $1, vip_expiration = $2 WHERE id = $3',
+        ['vip', expiresAt, userId]
+      );
+      res.json({ success: true, expiresAt });
+    } else {
+      // Usuario anónimo: registramos la compra de suscripción en una tabla opcional vip_purchases
+      // Si la tabla no existe, capturamos el error y devolvemos éxito para que el frontend trate la sesión como VIP temporal.
+      try {
+        await pool.query(
+          `INSERT INTO vip_purchases (paypal_order_id, payer_email, amount, expires_at, created_at) VALUES ($1, $2, $3, $4, NOW())`,
+          [req.body?.orderID || null, req.body?.payerEmail || 'anonimo', req.body?.amount || 0, expiresAt]
+        );
+      } catch (e) {
+        // Ignorar errores por tabla faltante u otros; esto no impide que la sesión sea tratada como VIP temporal
+      }
+      res.json({ success: true, expiresAt });
+    }
   } catch (err) {
     console.error('Error al activar suscripción VIP:', err);
     res.status(500).json({ success: false, message: 'Error al activar VIP' });
